@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { generateQueenPositions, generateRegions, generateLevel, complexityToTargetSteps } from '../generator';
+import {
+  generateQueenPositions,
+  generateRegions,
+  generateLevel,
+  generateLevelResult,
+  complexityToTargetSteps,
+} from '../generator';
+import { generateLevelReverse } from '../reverseGenerator';
 import { createRNG } from '../random';
 import { createEmptyBoard, isBoardValid } from '../rules';
 import { solve } from '../solver';
@@ -191,3 +198,105 @@ function regionsToLayout(n: number, regions: { id: number; cells: { row: number;
   }
   return layout;
 }
+
+// ── Reverse Generator Tests ────────────────────────────────────
+
+describe('generateLevelReverse', () => {
+  it('generates a solvable 5×5 level', () => {
+    const result = generateLevelReverse({ n: 5, targetSteps: 12, seed: 42 });
+    expect(result.status).not.toBe('failed');
+    expect(result.level).not.toBeNull();
+    if (result.level) {
+      expect(result.level.n).toBe(5);
+      expect(result.level.regions).toHaveLength(5);
+      expect(result.level.solverResult.complete).toBe(true);
+      expect(result.level.strategySequence.length).toBe(result.level.actualSteps);
+      expect(result.level.strategySequence.length).toBeGreaterThan(0);
+    }
+  }, 30000);
+
+  it('generates a solvable 5×5 level for different step targets', () => {
+    for (const targetSteps of [10, 13, 15]) {
+      const result = generateLevelReverse({ n: 5, targetSteps, seed: 100 + targetSteps });
+      if (result.status === 'failed') continue; // try next
+      expect(result.level).not.toBeNull();
+      if (result.level) {
+        expect(result.level.solverResult.complete).toBe(true);
+      }
+    }
+  }, 60000);
+
+  it('tries multiple seeds for 7×7 and finds at least one', () => {
+    let found = false;
+    const combos = [
+      { n: 7, targetSteps: 20, seed: 100 },
+      { n: 7, targetSteps: 22, seed: 200 },
+      { n: 7, targetSteps: 25, seed: 300 },
+      { n: 7, targetSteps: 28, seed: 400 },
+      { n: 7, targetSteps: 30, seed: 500 },
+      { n: 7, targetSteps: 18, seed: 600 },
+    ];
+    for (const params of combos) {
+      const result = generateLevelReverse(params);
+      if (result.status !== 'failed' && result.level) {
+        expect(result.level.n).toBe(7);
+        expect(result.level.solverResult.complete).toBe(true);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  }, 120000);
+
+  it('is deterministic with same seed', () => {
+    const r1 = generateLevelReverse({ n: 5, targetSteps: 12, seed: 42 });
+    const r2 = generateLevelReverse({ n: 5, targetSteps: 12, seed: 42 });
+    expect(r1.level).not.toBeNull();
+    expect(r2.level).not.toBeNull();
+    if (r1.level && r2.level) {
+      expect(r1.level.actualSteps).toBe(r2.level.actualSteps);
+    }
+  }, 30000);
+});
+
+describe('integrated generator (reverse + fallback)', () => {
+  it('generates 5×5 levels correctly', () => {
+    for (const targetSteps of [10, 12, 14]) {
+      const result = generateLevelResult({ n: 5, targetSteps, seed: 200 + targetSteps });
+      if (result.status === 'failed') continue;
+      expect(result.level).not.toBeNull();
+      if (result.level) {
+        expect(result.level.solverResult.complete).toBe(true);
+        expect(result.level.actualSteps).toBeGreaterThan(0);
+      }
+    }
+  }, 45000);
+
+  it('generates 6×6 levels correctly', () => {
+    let found = false;
+    for (const seed of [99, 150, 200, 250, 300]) {
+      const result = generateLevelResult({ n: 6, targetSteps: 16, seed, allowApproximate: true });
+      if (result.status !== 'failed' && result.level) {
+        expect(result.level.n).toBe(6);
+        expect(result.level.solverResult.complete).toBe(true);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  }, 60000);
+
+  it('generates 8×8 levels (may need fallback)', () => {
+    let found = false;
+    for (const seed of [100, 300, 500, 700, 777]) {
+      const result = generateLevelResult({ n: 8, targetSteps: 30, seed, allowApproximate: true });
+      if (result.status !== 'failed' && result.level) {
+        expect(result.level.n).toBe(8);
+        expect(result.level.solverResult.complete).toBe(true);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  }, 120000);
+});

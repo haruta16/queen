@@ -10,6 +10,7 @@ import {
 import { createEmptyBoard, getQueenPositions } from './rules';
 import { applyBatchesUpTo, solve } from './solver';
 import { createRNG, shuffle, randInt } from './random';
+import { generateLevelReverse } from './reverseGenerator';
 
 // ============================================================
 // Queen Puzzle Generator
@@ -517,20 +518,46 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed } = params;
   const actualSeed = seed ?? Date.now();
   const startedAt = Date.now();
-  const maxAttempts = Math.max(1, Math.min(100_000, Math.round(
-    params.maxAttempts ?? Math.max(600, Math.min(6000, n * targetSteps * 35)),
-  )));
   const allowApproximate = params.allowApproximate ?? false;
   const useKeyedRegions = params.useKeyedRegions ?? false;
 
-  let bestLevel: Level | null = null;
-  let bestDiff = Infinity;
+  // Phase 1: Try reverse generator (fast, constraint-aware)
+  const reverseResult = generateLevelReverse({
+    ...params,
+    seed: actualSeed,
+    allowApproximate: false,
+  });
+  if (reverseResult.status === 'exact') {
+    reverseResult.diagnostics.elapsedMs = Date.now() - startedAt;
+    reverseResult.diagnostics.allowApproximate = allowApproximate;
+    reverseResult.diagnostics.useKeyedRegions = useKeyedRegions;
+    return reverseResult;
+  }
+
+  // Phase 2: Fall back to reverse with approximate if allowed
+  if (allowApproximate && reverseResult.level) {
+    const diag = reverseResult.diagnostics;
+    diag.allowApproximate = allowApproximate;
+    diag.useKeyedRegions = useKeyedRegions;
+    diag.elapsedMs = Date.now() - startedAt;
+    return { status: 'approximate', level: reverseResult.level, diagnostics: diag };
+  }
+
+  // Phase 3: Fall back to original brute-force generator for hard cases
+  const maxAttempts = Math.max(1, Math.min(100_000, Math.round(
+    params.maxAttempts ?? Math.max(600, Math.min(6000, n * targetSteps * 35)),
+  )));
+
+  let bestLevel: Level | null = reverseResult.level;
+  let bestDiff = reverseResult.level
+    ? Math.abs(reverseResult.level.actualSteps - targetSteps)
+    : Infinity;
   let selectedAttempt: number | null = null;
   let selectedAttemptSeed: number | null = null;
   let attempts = 0;
-  let completeCandidates = 0;
-  let incompleteCandidates = 0;
-  let exactCandidates = 0;
+  let completeCandidates = reverseResult.diagnostics.completeCandidates;
+  let incompleteCandidates = reverseResult.diagnostics.incompleteCandidates;
+  let exactCandidates = reverseResult.diagnostics.exactCandidates;
 
   const makeDiagnostics = (status: GenerationStatus): GenerationDiagnostics => ({
     status,
