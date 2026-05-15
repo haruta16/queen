@@ -10,6 +10,7 @@ export type CellState = {
   regionId: number;
   isQueen: boolean;
   isX: boolean;
+  isWrong: boolean;
 };
 
 /** Color region — a connected set of cells sharing one Queen */
@@ -51,6 +52,7 @@ export type Level = {
   id: string;
   n: number;
   regions: Region[];
+  solution: Position[];
   seed: number;
   targetSteps: number;
   actualSteps: number;

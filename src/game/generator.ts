@@ -1,6 +1,6 @@
-import { BoardState, Position, Region, Level, GeneratorParams, SolverResult, StrategyType } from './types';
-import { createEmptyBoard, cloneBoard, getAdjacentPositions } from './rules';
-import { solve } from './solver';
+import { Position, Region, Level, GeneratorParams } from './types';
+import { createEmptyBoard, getQueenPositions } from './rules';
+import { applyBatchesUpTo, solve } from './solver';
 import { createRNG, shuffle, randInt } from './random';
 
 // ============================================================
@@ -63,36 +63,37 @@ export function generateRegions(
     regionSeeds.push({ row, col });
   }
 
-  // Target sizes: ensure some regions are small (2-3 cells) for solver foothold,
-  // and distribute remaining cells fairly among the rest
-  const targetSizes: number[] = Array(numRegions).fill(0);
+  // Target sizes are intentionally varied. Low complexity keeps more small
+  // foothold regions; high complexity spreads candidates across larger regions.
+  const targetSizes: number[] = Array(numRegions).fill(1);
   const totalCells = n * n;
 
   const shuffledIndices = shuffle(Array.from({ length: numRegions }, (_, i) => i), rng);
-
-  // Always have at least 2 small regions (2 cells each) and 1 medium (3-4 cells)
-  const smallCount = Math.min(numRegions - 1, 2);
-  const mediumCount = Math.min(numRegions - smallCount, 1);
+  const smallCount = Math.max(1, Math.min(numRegions - 1, Math.round(numRegions * (0.45 - complexity * 0.25))));
+  const lockedSmall = new Set<number>(shuffledIndices.slice(0, Math.max(1, Math.floor(smallCount / 2))));
 
   for (let i = 0; i < smallCount; i++) {
-    targetSizes[shuffledIndices[i]] = 2;
-  }
-  for (let i = smallCount; i < smallCount + mediumCount; i++) {
-    targetSizes[shuffledIndices[i]] = 3 + Math.floor(rng() * 2); // 3-4
+    targetSizes[shuffledIndices[i]] = lockedSmall.has(shuffledIndices[i])
+      ? 1
+      : 2 + Math.floor(rng() * 2);
   }
 
-  // Distribute remaining cells among remaining regions
-  const remainingCells = totalCells - targetSizes.reduce((a, b) => a + b, 0);
-  const remainingRegions = numRegions - smallCount - mediumCount;
-  if (remainingRegions > 0) {
-    const baseSize = Math.floor(remainingCells / remainingRegions);
-    for (let i = smallCount + mediumCount; i < numRegions; i++) {
-      targetSizes[shuffledIndices[i]] = baseSize;
-    }
-    let remainder = remainingCells - baseSize * remainingRegions;
-    for (let i = smallCount + mediumCount; i < numRegions && remainder > 0; i++) {
-      targetSizes[shuffledIndices[i]]++;
-      remainder--;
+  let remainingCells = totalCells - targetSizes.reduce((a, b) => a + b, 0);
+  while (remainingCells > 0) {
+    const weights = shuffledIndices.map((rid, order) => {
+      const base = 1 + complexity * 3 + rng() * 2;
+      const smallPenalty = order < smallCount ? 0.25 : 1;
+      return { rid, weight: base * smallPenalty };
+    });
+    const totalWeight = weights.reduce((sum, item) => sum + item.weight, 0);
+    let roll = rng() * totalWeight;
+    for (const item of weights) {
+      roll -= item.weight;
+      if (roll <= 0) {
+        targetSizes[item.rid]++;
+        remainingCells--;
+        break;
+      }
     }
   }
 
@@ -186,29 +187,57 @@ export function generateRegions(
   }
 
   // Fill any remaining unassigned cells (regions may not fill perfectly)
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      if (regionId[r][c] === -1) {
+  let filledThisPass = true;
+  while (filledThisPass) {
+    filledThisPass = false;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if (regionId[r][c] !== -1) continue;
+
         const adjacentRegions = new Set<number>();
-        const pos: Position = { row: r, col: c };
         for (const { dr, dc } of dirs) {
           const nr = r + dr, nc = c + dc;
           if (nr >= 0 && nr < n && nc >= 0 && nc < n && regionId[nr][nc] !== -1) {
             adjacentRegions.add(regionId[nr][nc]);
           }
         }
-        if (adjacentRegions.size > 0) {
-          let bestRid = -1, bestSize = Infinity;
-          for (const rid of adjacentRegions) {
-            if (currentSizes[rid] < bestSize) {
-              bestSize = currentSizes[rid];
-              bestRid = rid;
-            }
+        if (adjacentRegions.size === 0) continue;
+
+        const flexibleAdjacent = Array.from(adjacentRegions).filter(rid => !lockedSmall.has(rid));
+        const candidateRegions = flexibleAdjacent.length > 0 ? flexibleAdjacent : Array.from(adjacentRegions);
+        let bestRid = -1, bestSize = Infinity;
+        for (const rid of candidateRegions) {
+          if (currentSizes[rid] < bestSize) {
+            bestSize = currentSizes[rid];
+            bestRid = rid;
           }
-          regionId[r][c] = bestRid;
-          currentSizes[bestRid]++;
+        }
+        regionId[r][c] = bestRid;
+        currentSizes[bestRid]++;
+        filledThisPass = true;
+      }
+    }
+  }
+
+  // Safety fallback: assign any isolated leftover to the nearest non-locked region.
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (regionId[r][c] !== -1) continue;
+      let bestRid = 0;
+      let bestDist = Infinity;
+      for (let rr = 0; rr < n; rr++) {
+        for (let cc = 0; cc < n; cc++) {
+          const rid = regionId[rr][cc];
+          if (rid === -1 || lockedSmall.has(rid)) continue;
+          const dist = Math.abs(rr - r) + Math.abs(cc - c);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestRid = rid;
+          }
         }
       }
+      regionId[r][c] = bestRid;
+      currentSizes[bestRid]++;
     }
   }
 
@@ -227,6 +256,85 @@ export function generateRegions(
 
 // ============================================================
 
+function generateFallbackRegions(n: number, queenPositions: Position[]): Region[] {
+  const singletonQueens = queenPositions.slice(0, Math.max(1, n - 1));
+  const singletonKeys = new Set(singletonQueens.map(p => `${p.row},${p.col}`));
+  const regions: Region[] = singletonQueens.map((pos, id) => ({ id, cells: [pos] }));
+  const finalRegion: Region = { id: regions.length, cells: [] };
+
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (!singletonKeys.has(`${row},${col}`)) {
+        finalRegion.cells.push({ row, col });
+      }
+    }
+  }
+
+  return [...regions, finalRegion];
+}
+
+function generateScaffoldRegions(
+  n: number,
+  queenPositions: Position[],
+  singletonCount: number,
+): Region[] {
+  const lockedCount = Math.max(0, Math.min(singletonCount, n - 1));
+  const lockedKeys = new Set(queenPositions.slice(0, lockedCount).map(p => `${p.row},${p.col}`));
+  const regionCells: Position[][] = Array.from({ length: n }, () => []);
+
+  for (let rid = 0; rid < lockedCount; rid++) {
+    regionCells[rid].push(queenPositions[rid]);
+  }
+
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const key = `${row},${col}`;
+      if (lockedKeys.has(key)) continue;
+
+      let bestRid = lockedCount;
+      let bestDist = Infinity;
+      for (let rid = lockedCount; rid < n; rid++) {
+        const seed = queenPositions[rid];
+        const dist = Math.abs(seed.row - row) + Math.abs(seed.col - col);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestRid = rid;
+        }
+      }
+      regionCells[bestRid].push({ row, col });
+    }
+  }
+
+  return regionCells.map((cells, id) => ({ id, cells }));
+}
+
+function buildLevel(
+  n: number,
+  regions: Region[],
+  queenPositions: Position[],
+  seed: number,
+  targetSteps: number,
+  retry: number,
+): Level | null {
+  const board = createEmptyBoard(n, regions);
+  const result = solve(board);
+  if (!result.complete) return null;
+  const solvedBoard = applyBatchesUpTo(board, result.batches, result.totalSteps);
+  const solution = getQueenPositions(solvedBoard);
+
+  return {
+    id: `L${n}x${n}-${seed}-${retry}`,
+    n,
+    regions,
+    solution,
+    seed,
+    targetSteps,
+    actualSteps: result.totalSteps,
+    strategySequence: result.batches.map(b => b.strategy),
+    solverResult: result,
+  };
+}
+
 /**
  * Generate a complete, solvable Level.
  *
@@ -235,14 +343,12 @@ export function generateRegions(
 export function generateLevel(params: GeneratorParams): Level | null {
   const { n, targetSteps, seed } = params;
   const actualSeed = seed ?? Date.now();
-  const rng = createRNG(actualSeed);
 
-  // Estimated step range for this n (rough, solver will give exact numbers)
-  const minStepsEst = n * 2 + 2;     // min: ~simple L1 chain
-  const maxStepsEst = n * 6 + 6;     // max: ~complex with L3
+  // Estimated step range for this n (calibrated for solver that records L1_Direct batches)
+  const minStepsEst = n * 2;           // min: all queens confirmed in sequence with L1 propagation
+  const maxStepsEst = n * 4 + 4;       // max: complex with L2/L3 interleaved
 
-  const tolerance = Math.max(3, Math.floor(targetSteps * 0.1));
-  const maxRetries = 40;
+  const maxRetries = Math.min(900, Math.max(220, n * 55 + targetSteps * 10));
 
   // Initial complexity guess
   let lo = 0.0;
@@ -251,7 +357,40 @@ export function generateLevel(params: GeneratorParams): Level | null {
 
   let bestLevel: Level | null = null;
   let bestDiff = Infinity;
-  let consecutiveIncomplete = 0;
+
+  const considerLevel = (level: Level | null): Level | null => {
+    if (!level) return null;
+    const diff = level.actualSteps - targetSteps;
+    if (diff === 0) return level;
+    if (Math.abs(diff) < bestDiff) {
+      bestDiff = Math.abs(diff);
+      bestLevel = level;
+    }
+    return null;
+  };
+
+  // Constructive pass: on large boards, deterministic scaffold regions are far
+  // more reliable than pure random growth. They create a real opening while
+  // preserving enough region variation for the solver-loop step count to differ.
+  const scaffoldRng = createRNG(actualSeed + 31_337);
+  for (let attempt = 0; attempt < Math.max(8, n * 2); attempt++) {
+    let queenPositions: Position[];
+    try {
+      queenPositions = generateQueenPositions(n, scaffoldRng);
+    } catch {
+      continue;
+    }
+    const order = shuffle(queenPositions, scaffoldRng);
+    const counts = Array.from({ length: n }, (_, i) => i).sort((a, b) => {
+      const preferred = Math.round(n * 0.55 + (targetSteps / Math.max(1, n * 3)) * n * 0.35);
+      return Math.abs(a - preferred) - Math.abs(b - preferred);
+    });
+    for (const singletonCount of counts) {
+      const scaffold = generateScaffoldRegions(n, order, singletonCount);
+      const exact = considerLevel(buildLevel(n, scaffold, order, actualSeed, targetSteps, -1000 - attempt * 20 - singletonCount));
+      if (exact) return exact;
+    }
+  }
 
   for (let retry = 0; retry < maxRetries; retry++) {
     // Use a fresh RNG branch for each retry to get different Queen+Region combos
@@ -261,64 +400,46 @@ export function generateLevel(params: GeneratorParams): Level | null {
     try {
       queenPositions = generateQueenPositions(n, retryRng);
     } catch {
-      consecutiveIncomplete++;
-      if (consecutiveIncomplete > 10) return bestLevel;
       continue;
     }
 
     const regions = generateRegions(n, queenPositions, complexity, retryRng);
-    const board = createEmptyBoard(n, regions);
-    const result = solve(board);
-
-    if (!result.complete) {
-      consecutiveIncomplete++;
-      if (consecutiveIncomplete > 10) return bestLevel;
+    const level = buildLevel(n, regions, queenPositions, actualSeed, targetSteps, retry);
+    if (!level) {
       continue;
     }
 
-    consecutiveIncomplete = 0;
-    const steps = result.totalSteps;
+    const steps = level.actualSteps;
     const diff = steps - targetSteps;
 
-    // Build level with full solver result
-    const level: Level = {
-      id: `L${n}x${n}-${actualSeed}-${retry}`,
-      n,
-      regions,
-      seed: actualSeed,
-      targetSteps,
-      actualSteps: steps,
-      strategySequence: result.batches.map(b => b.strategy),
-      solverResult: result,
-    };
-
-    // Exact match or within tolerance
-    if (Math.abs(diff) <= tolerance) return level;
-
-    // Track best
-    if (Math.abs(diff) < bestDiff) {
-      bestDiff = Math.abs(diff);
-      bestLevel = level;
-    }
+    // Exact target hit. Non-unique boards are allowed; solver-loop step count is the contract.
+    const exact = considerLevel(level);
+    if (exact) return exact;
 
     // Binary search adjustment
     if (diff < 0) {
-      // Too few steps → need more complexity
       lo = complexity;
     } else {
-      // Too many steps → need less complexity
       hi = complexity;
     }
 
-    complexity = (lo + hi) / 2;
+    const wobble = ((retry % 9) - 4) * 0.035;
+    complexity = Math.max(0, Math.min(1, (lo + hi) / 2 + wobble));
 
-    // Binary search converged
+    // Binary search converged — reset search with fresh seed direction
     if (hi - lo < 0.03) {
-      return bestLevel; // return closest match
+      lo = 0.0;
+      hi = 1.0;
+      complexity = Math.max(0, Math.min(1, (targetSteps - minStepsEst + (retry % 7) * 2) / (maxStepsEst - minStepsEst)));
     }
   }
 
-  return bestLevel;
+  if (bestLevel) return bestLevel;
+
+  const fallbackRng = createRNG(actualSeed + 97_531);
+  const fallbackQueens = generateQueenPositions(n, fallbackRng);
+  const fallbackRegions = generateFallbackRegions(n, fallbackQueens);
+  return buildLevel(n, fallbackRegions, fallbackQueens, actualSeed, targetSteps, maxRetries);
 }
 
 /**
@@ -326,12 +447,12 @@ export function generateLevel(params: GeneratorParams): Level | null {
  */
 export function complexityToTargetSteps(n: number, label: '简单' | '中等' | '困难'): number {
   const ranges: Record<number, { min: number; max: number }> = {
-    5: { min: 10, max: 35 },
-    6: { min: 14, max: 42 },
-    7: { min: 16, max: 52 },
-    8: { min: 18, max: 58 },
-    9: { min: 20, max: 65 },
-    10: { min: 22, max: 72 },
+    5: { min: 8, max: 13 },
+    6: { min: 10, max: 16 },
+    7: { min: 12, max: 19 },
+    8: { min: 14, max: 22 },
+    9: { min: 16, max: 26 },
+    10: { min: 18, max: 30 },
   };
 
   const range = ranges[n] ?? { min: 10, max: 50 };

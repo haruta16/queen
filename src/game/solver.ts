@@ -6,6 +6,7 @@ import {
   getCandidatesInRegion,
   findUniqueCandidates,
   applyQueen,
+  placeQueen,
   applyX,
   isBoardComplete,
   getQueenPositions,
@@ -34,10 +35,9 @@ function applyBatch(board: BoardState, batch: SolverBatch): BoardState {
   for (const x of batch.eliminations) {
     b = applyX(b, x);
   }
-  // Apply all confirmed queens (propagated X handled by next L1_Direct)
+  // Place queens only — X propagation is deferred to next L1_Direct step
   for (const q of batch.queenConfirmed) {
-    const result = applyQueen(b, q);
-    b = result.board;
+    b = placeQueen(b, q);
   }
   return b;
 }
@@ -49,11 +49,12 @@ function stepL1Direct(board: BoardState, index: number): SolverBatch | null {
   if (queens.length === 0) return null;
 
   const allNewX: Position[] = [];
-  const b = cloneBoard(board);
+  let b = cloneBoard(board);
 
   for (const q of queens) {
-    const { newX } = applyQueen(b, q);
-    for (const x of newX) allNewX.push(x);
+    const result = applyQueen(b, q);
+    b = result.board;
+    for (const x of result.newX) allNewX.push(x);
   }
 
   if (allNewX.length === 0) return null;
@@ -71,25 +72,15 @@ function stepL1Unique(board: BoardState, index: number): SolverBatch | null {
   const uniq = findUniqueCandidates(board);
   if (uniq.length === 0) return null;
 
-  let b = cloneBoard(board);
-  const confirmed: Position[] = [];
+  const confirmed = uniq.find(u => !board.cells[u.row][u.col].isQueen);
+  if (!confirmed) return null;
 
-  for (const u of uniq) {
-    if (b.cells[u.row][u.col].isQueen) continue;
-    const result = applyQueen(b, u);
-    b = result.board;
-    confirmed.push(u);
-  }
-
-  if (confirmed.length === 0) return null;
-
-  const descParts = confirmed.map(u => formatPos(u));
   return {
     index,
     strategy: 'L1_Unique',
     eliminations: [], // rule 3: no eliminations in this batch
-    queenConfirmed: confirmed,
-    description: `唯一候选确认 Queen: ${descParts.join(', ')}`,
+    queenConfirmed: [confirmed],
+    description: `唯一候选确认 Queen: ${formatPos(confirmed)}`,
   };
 }
 

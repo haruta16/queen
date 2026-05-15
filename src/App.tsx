@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore } from './game/store';
 import Hud from './ui/Hud';
 import Board from './ui/Board';
@@ -7,10 +7,23 @@ import SolverPanel from './ui/SolverPanel';
 import GeneratorPanel from './ui/GeneratorPanel';
 
 export default function App() {
+  const [appMode, setAppMode] = useState<'mainline' | 'generator'>('mainline');
   const message = useGameStore(s => s.message);
   const messageType = useGameStore(s => s.messageType);
   const clearMessage = useGameStore(s => s.clearMessage);
   const isGenerating = useGameStore(s => s.isGenerating);
+  const level = useGameStore(s => s.level);
+  const requestGenerate = useGameStore(s => s.requestGenerate);
+  const loadLevel = useGameStore(s => s.loadLevel);
+
+  // Load a deterministic starter level for the mainline.
+  useEffect(() => {
+    if (!level) {
+      requestGenerate(6, 12, 20260515).then(generated => {
+        if (generated) loadLevel(generated);
+      });
+    }
+  }, [level, requestGenerate, loadLevel]);
 
   // Auto-clear message after 3 seconds
   useEffect(() => {
@@ -22,18 +35,39 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <Hud />
-      <div className="app-main">
-        {isGenerating ? (
-          <div className="placeholder">
-            <span className="spinner" />
-            <span style={{ marginLeft: 8 }}>正在生成关卡...</span>
+      <header className="app-header">
+        <div className="brand-block">
+          <span className="brand-kicker">QUEEN ELIMINATION</span>
+          <h1>皇后消元</h1>
+        </div>
+        <nav className="mode-tabs" aria-label="应用模式">
+          <button className={appMode === 'mainline' ? 'active' : ''} onClick={() => setAppMode('mainline')}>
+            主线
+          </button>
+          <button className={appMode === 'generator' ? 'active' : ''} onClick={() => setAppMode('generator')}>
+            关卡生成器
+          </button>
+        </nav>
+      </header>
+
+      {appMode === 'mainline' ? (
+        <>
+          <Hud />
+          <div className="app-main">
+            {isGenerating ? (
+              <div className="placeholder">
+                <span className="spinner" />
+                <span style={{ marginLeft: 8 }}>正在装配主线关卡...</span>
+              </div>
+            ) : (
+              <Board />
+            )}
           </div>
-        ) : (
-          <Board />
-        )}
-      </div>
-      <Toolbar />
+          <Toolbar onOpenGenerator={() => setAppMode('generator')} />
+        </>
+      ) : (
+        <GeneratorPanel onEnterMainline={() => setAppMode('mainline')} />
+      )}
 
       {/* Message toast */}
       {message && (
@@ -44,7 +78,6 @@ export default function App() {
 
       {/* Panels */}
       <SolverPanel />
-      <GeneratorPanel />
     </div>
   );
 }

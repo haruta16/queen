@@ -1,22 +1,27 @@
 import { create } from 'zustand';
 import {
-  BoardState, Level, SolverBatch, SolverResult, Position,
-  GeneratorParams, ComplexityLabel, OpHistoryEntry,
+  BoardState, Level, SolverResult, OpHistoryEntry,
 } from './types';
 import {
-  createEmptyBoard, cloneBoard, applyX, removeX, applyQueen,
-  findUniqueCandidates, getCandidatesInRow, getCandidatesInCol,
-  getCandidatesInRegion, isBoardComplete, isBoardValid,
-  getQueenPositions, formatPos,
+  createEmptyBoard, applyX, removeX, applyQueen,
+  applyWrong,
+  isBoardComplete,
+  formatPos,
 } from './rules';
-import { solve, applyBatchesUpTo } from './solver';
-import { generateLevel, complexityToTargetSteps } from './generator';
+import { solve } from './solver';
+import { generateLevel } from './generator';
 
 // ============================================================
 // Game Store — zustand
 // ============================================================
 
 export type InteractionMode = 'markX' | 'confirmQueen';
+
+export type GeneratorDraft = {
+  n: number;
+  targetSteps: number;
+  seed: number;
+};
 
 interface GameState {
   // Current level
@@ -42,6 +47,8 @@ interface GameState {
   generatorPanelOpen: boolean;
   isGenerating: boolean;
   generationError: string | null;
+  generatorDraft: GeneratorDraft;
+  lastGeneratedLevel: Level | null;
 
   // UI feedback
   message: string | null;
@@ -57,7 +64,9 @@ interface GameState {
   requestSolve: () => void;
   setSolverStep: (index: number) => void;
   setSolverPanelOpen: (open: boolean) => void;
-  requestGenerate: (n: number, complexity: ComplexityLabel, targetSteps?: number) => Promise<void>;
+  requestGenerate: (n: number, targetSteps: number, seed?: number) => Promise<Level | null>;
+  setGeneratorDraft: (patch: Partial<GeneratorDraft>) => void;
+  enterGeneratedLevel: () => boolean;
   setGeneratorPanelOpen: (open: boolean) => void;
   clearMessage: () => void;
 }
@@ -74,6 +83,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   generatorPanelOpen: false,
   isGenerating: false,
   generationError: null,
+  generatorDraft: { n: 7, targetSteps: 16, seed: 20260515 },
+  lastGeneratedLevel: null,
   message: null,
   messageType: 'info',
 
@@ -95,71 +106,52 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   toggleX: (row, col) => {
-    const { board, mode } = get();
+    const { board } = get();
     if (!board) return;
 
-    if (mode === 'markX') {
-      const cell = board.cells[row][col];
-      if (cell.isQueen) return; // can't mark X on Queen
+    const cell = board.cells[row][col];
+    if (cell.isQueen || cell.isWrong) return; // revealed cells are final
 
-      if (cell.isX) {
-        // Remove X
-        const newBoard = removeX(board, { row, col });
-        set({
-          board: newBoard,
-          xHistory: [...get().xHistory, { pos: { row, col }, wasX: true }],
-          redoStack: [],
-          message: null,
-        });
-      } else {
-        // Place X
-        const newBoard = applyX(board, { row, col });
-        set({
-          board: newBoard,
-          xHistory: [...get().xHistory, { pos: { row, col }, wasX: false }],
-          redoStack: [],
-          message: null,
-        });
-      }
+    if (cell.isX) {
+      // Remove X
+      const newBoard = removeX(board, { row, col });
+      set({
+        board: newBoard,
+        xHistory: [...get().xHistory, { pos: { row, col }, wasX: true }],
+        redoStack: [],
+        message: null,
+      });
     } else {
-      // In confirmQueen mode
-      get().confirmQueen(row, col);
+      // Place X
+      const newBoard = applyX(board, { row, col });
+      set({
+        board: newBoard,
+        xHistory: [...get().xHistory, { pos: { row, col }, wasX: false }],
+        redoStack: [],
+        message: null,
+      });
     }
   },
 
   confirmQueen: (row, col) => {
-    const { board } = get();
+    const { board, level } = get();
     if (!board) return '无棋盘状态';
+    if (!level) return '无关卡答案';
 
     const cell = board.cells[row][col];
     if (cell.isQueen) return '此格已是 Queen';
-    if (cell.isX) return '此格已标记为 X';
+    if (cell.isWrong) return '此格已翻出红 X';
 
-    // Check if this cell is a unique candidate in its row, column, or region
-    const rowCands = getCandidatesInRow(board, row);
-    const colCands = getCandidatesInCol(board, col);
-    const regCands = getCandidatesInRegion(board, cell.regionId);
-
-    const isUniqueRow = rowCands.length === 1 && rowCands[0].row === row && rowCands[0].col === col;
-    const isUniqueCol = colCands.length === 1 && colCands[0].row === row && colCands[0].col === col;
-    const isUniqueReg = regCands.length === 1 && regCands[0].row === row && regCands[0].col === col;
-
-    if (!isUniqueRow && !isUniqueCol && !isUniqueReg) {
-      const reasons: string[] = [];
-      if (rowCands.length > 1) reasons.push(`该行还有 ${rowCands.length} 个候选`);
-      if (colCands.length > 1) reasons.push(`该列还有 ${colCands.length} 个候选`);
-      if (regCands.length > 1) reasons.push(`该区域还有 ${regCands.length} 个候选`);
-      return `无法确认 Queen: ${reasons.join('; ')}`;
-    }
-
-    // Check adjacency with existing Queens
-    const queens = getQueenPositions(board);
-    for (const q of queens) {
-      const dr = Math.abs(q.row - row);
-      const dc = Math.abs(q.col - col);
-      if (dr <= 1 && dc <= 1) {
-        return `与 ${formatPos(q)} 的 Queen 相邻`;
-      }
+    const isSolutionQueen = level.solution.some(pos => pos.row === row && pos.col === col);
+    if (!isSolutionQueen) {
+      const newBoard = applyWrong(board, { row, col });
+      set({
+        board: newBoard,
+        redoStack: [],
+        message: `不是 Queen: ${formatPos({ row, col })}`,
+        messageType: 'error',
+      });
+      return null;
     }
 
     // Apply Queen
@@ -170,7 +162,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     set({
       board: newBoard,
-      xHistory: [], // Queen placement clears undo history
+      xHistory: [], // Queen reveal changes propagated board; keep history simple
       redoStack: [],
       message: complete ? '恭喜！所有 Queen 已就位！' : `Queen 确认: ${formatPos({ row, col })}`,
       messageType: complete ? 'success' : 'info',
@@ -247,8 +239,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { board, level } = get();
     if (!board || !level) return;
 
-    // Use level's solver result if available, or recompute
-    const result = level.solverResult;
+    const result = solve(createEmptyBoard(level.n, level.regions));
     set({
       solverResult: result,
       solverStepIndex: 0,
@@ -265,27 +256,32 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   setSolverPanelOpen: (open) => set({ solverPanelOpen: open }),
 
-  requestGenerate: async (n, complexity, targetSteps?) => {
-    set({ isGenerating: true, generationError: null });
+  requestGenerate: async (n, targetSteps, seed?) => {
+    const actualSeed = seed ?? Date.now();
+    set({
+      isGenerating: true,
+      generationError: null,
+      generatorDraft: { n, targetSteps, seed: actualSeed },
+    });
 
     try {
-      const steps = targetSteps ?? complexityToTargetSteps(n, complexity);
-
       // Run generation asynchronously (it's potentially slow)
       const level = await new Promise<Level | null>((resolve) => {
         setTimeout(() => {
-          resolve(generateLevel({ n, targetSteps: steps }));
+          resolve(generateLevel({ n, targetSteps, seed: actualSeed }));
         }, 50); // Small delay to let the UI update
       });
 
       if (level) {
-        get().loadLevel(level);
         set({
           isGenerating: false,
-          generatorPanelOpen: false,
-          message: `关卡生成成功: ${n}×${n} / ${level.actualSteps}步`,
+          lastGeneratedLevel: level,
+          message: level.actualSteps === targetSteps
+            ? `生成完成: 精确命中 ${level.actualSteps} 步`
+            : `生成完成: 目标${targetSteps}步 / 实际${level.actualSteps}步`,
           messageType: 'success',
         });
+        return level;
       } else {
         set({
           isGenerating: false,
@@ -293,6 +289,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           message: '关卡生成失败，请尝试其他参数',
           messageType: 'error',
         });
+        return null;
       }
     } catch (e) {
       set({
@@ -301,7 +298,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         message: '生成过程出错',
         messageType: 'error',
       });
+      return null;
     }
+  },
+
+  setGeneratorDraft: (patch) => set(state => ({
+    generatorDraft: { ...state.generatorDraft, ...patch },
+  })),
+
+  enterGeneratedLevel: () => {
+    const level = get().lastGeneratedLevel;
+    if (!level) return false;
+    get().loadLevel(level);
+    return true;
   },
 
   setGeneratorPanelOpen: (open) => set({ generatorPanelOpen: open }),

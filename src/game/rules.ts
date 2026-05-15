@@ -39,7 +39,7 @@ export function getCandidatesInRow(board: BoardState, row: number): Position[] {
   const result: Position[] = [];
   for (let c = 0; c < board.n; c++) {
     const cell = board.cells[row][c];
-    if (!cell.isQueen && !cell.isX) result.push({ row, col: c });
+    if (!cell.isQueen && !cell.isX && !cell.isWrong) result.push({ row, col: c });
   }
   return result;
 }
@@ -49,7 +49,7 @@ export function getCandidatesInCol(board: BoardState, col: number): Position[] {
   const result: Position[] = [];
   for (let r = 0; r < board.n; r++) {
     const cell = board.cells[r][col];
-    if (!cell.isQueen && !cell.isX) result.push({ row: r, col });
+    if (!cell.isQueen && !cell.isX && !cell.isWrong) result.push({ row: r, col });
   }
   return result;
 }
@@ -60,7 +60,7 @@ export function getCandidatesInRegion(board: BoardState, regionId: number): Posi
   for (let r = 0; r < board.n; r++) {
     for (let c = 0; c < board.n; c++) {
       const cell = board.cells[r][c];
-      if (cell.regionId === regionId && !cell.isQueen && !cell.isX) {
+      if (cell.regionId === regionId && !cell.isQueen && !cell.isX && !cell.isWrong) {
         result.push({ row: r, col: c });
       }
     }
@@ -162,11 +162,12 @@ export function applyQueen(board: BoardState, pos: Position): { board: BoardStat
   // Place Queen
   b.cells[row][col].isQueen = true;
   b.cells[row][col].isX = false;
+  b.cells[row][col].isWrong = false;
 
   // Helper to mark X if not already Queen/X
   const markX = (r: number, c: number) => {
     const cell = b.cells[r][c];
-    if (!cell.isQueen && !cell.isX) {
+    if (!cell.isQueen && !cell.isX && !cell.isWrong) {
       cell.isX = true;
       newX.push({ row: r, col: c });
     }
@@ -200,10 +201,22 @@ export function applyQueen(board: BoardState, pos: Position): { board: BoardStat
   return { board: b, newX };
 }
 
+/**
+ * Place Queen at position WITHOUT propagating X marks.
+ * Used by solver's applyBatch so L1_Direct can record the propagation as a separate step.
+ */
+export function placeQueen(board: BoardState, pos: Position): BoardState {
+  const b = cloneBoard(board);
+  b.cells[pos.row][pos.col].isQueen = true;
+  b.cells[pos.row][pos.col].isX = false;
+  b.cells[pos.row][pos.col].isWrong = false;
+  return b;
+}
+
 /** Apply X at position. Returns new board. Does not mutate input. */
 export function applyX(board: BoardState, pos: Position): BoardState {
   const b = cloneBoard(board);
-  if (!b.cells[pos.row][pos.col].isQueen) {
+  if (!b.cells[pos.row][pos.col].isQueen && !b.cells[pos.row][pos.col].isWrong) {
     b.cells[pos.row][pos.col].isX = true;
   }
   return b;
@@ -212,7 +225,20 @@ export function applyX(board: BoardState, pos: Position): BoardState {
 /** Remove X at position. Returns new board. */
 export function removeX(board: BoardState, pos: Position): BoardState {
   const b = cloneBoard(board);
-  b.cells[pos.row][pos.col].isX = false;
+  if (!b.cells[pos.row][pos.col].isWrong) {
+    b.cells[pos.row][pos.col].isX = false;
+  }
+  return b;
+}
+
+/** Mark a revealed wrong guess. Red X is final and cannot be toggled away. */
+export function applyWrong(board: BoardState, pos: Position): BoardState {
+  const b = cloneBoard(board);
+  const cell = b.cells[pos.row][pos.col];
+  if (!cell.isQueen) {
+    cell.isWrong = true;
+    cell.isX = false;
+  }
   return b;
 }
 
@@ -262,7 +288,7 @@ export function isBoardValid(board: BoardState): boolean {
 
   // Check no Queen is also marked X
   for (const q of queens) {
-    if (board.cells[q.row][q.col].isX) return false;
+      if (board.cells[q.row][q.col].isX || board.cells[q.row][q.col].isWrong) return false;
   }
 
   return true;
@@ -274,7 +300,7 @@ export function isBoardValid(board: BoardState): boolean {
  */
 export function createEmptyBoard(n: number, regions: Region[]): BoardState {
   const cells: CellState[][] = Array.from({ length: n }, () =>
-    Array.from({ length: n }, () => ({ regionId: -1, isQueen: false, isX: false }))
+    Array.from({ length: n }, () => ({ regionId: -1, isQueen: false, isX: false, isWrong: false }))
   );
 
   for (const region of regions) {
