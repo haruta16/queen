@@ -19,8 +19,15 @@ export default function App() {
   // Load a deterministic starter level for the mainline.
   useEffect(() => {
     if (!level) {
-      requestGenerate(6, 12, 20260515).then(generated => {
-        if (generated) loadLevel(generated);
+      requestGenerate({
+        n: 6,
+        targetSteps: 12,
+        seed: 20260515,
+        maxAttempts: 2500,
+        allowApproximate: true,
+        useKeyedRegions: true,
+      }).then(result => {
+        if (result.level) loadLevel(result.level);
       });
     }
   }, [level, requestGenerate, loadLevel]);

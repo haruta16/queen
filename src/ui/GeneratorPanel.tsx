@@ -10,6 +10,12 @@ function strategyLabel(type: string): string {
   return type.replace('_', ' ');
 }
 
+function statusLabel(status: string): string {
+  if (status === 'exact') return '精确命中';
+  if (status === 'approximate') return '近似结果';
+  return '未生成';
+}
+
 export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: () => void }) {
   const isGenerating = useGameStore(s => s.isGenerating);
   const generationError = useGameStore(s => s.generationError);
@@ -17,6 +23,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   const draft = useGameStore(s => s.generatorDraft);
   const setDraft = useGameStore(s => s.setGeneratorDraft);
   const lastLevel = useGameStore(s => s.lastGeneratedLevel);
+  const lastResult = useGameStore(s => s.lastGenerationResult);
   const enterGeneratedLevel = useGameStore(s => s.enterGeneratedLevel);
 
   const diff = useMemo(() => {
@@ -29,11 +36,14 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   };
 
   const handleGenerate = () => {
-    requestGenerate(
-      clamp(draft.n, 5, 10),
-      clamp(draft.targetSteps, 1, 80),
-      clamp(draft.seed, 1, 999_999_999),
-    );
+    requestGenerate({
+      n: clamp(draft.n, 5, 10),
+      targetSteps: clamp(draft.targetSteps, 1, 80),
+      seed: draft.seed == null ? undefined : clamp(draft.seed, 1, 999_999_999),
+      maxAttempts: clamp(draft.maxAttempts, 1, 100000),
+      allowApproximate: draft.allowApproximate,
+      useKeyedRegions: draft.useKeyedRegions,
+    });
   };
 
   const handleEnter = () => {
@@ -87,11 +97,51 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                   type="number"
                   min={1}
                   max={999999999}
-                  value={draft.seed}
-                  onChange={event => updateDraft({ seed: clamp(Number(event.target.value), 1, 999_999_999) })}
+                  placeholder="留空则随机"
+                  value={draft.seed ?? ''}
+                  onChange={event => {
+                    const raw = event.target.value.trim();
+                    updateDraft({ seed: raw ? clamp(Number(raw), 1, 999_999_999) : null });
+                  }}
                 />
                 <button className="micro-btn" onClick={randomizeSeed}>随机</button>
+                <button className="micro-btn" onClick={() => updateDraft({ seed: null })}>清空</button>
               </div>
+            </label>
+
+            <label className="generator-field">
+              <span>生成尝试上限</span>
+              <input
+                type="number"
+                min={1}
+                max={100000}
+                value={draft.maxAttempts}
+                onChange={event => updateDraft({ maxAttempts: clamp(Number(event.target.value), 1, 100000) })}
+              />
+            </label>
+
+            <label className="check-line">
+              <input
+                type="checkbox"
+                checked={draft.allowApproximate}
+                onChange={event => updateDraft({ allowApproximate: event.target.checked })}
+              />
+              <span>
+                允许近似结果
+                <small>关闭时只接受实际步数等于目标步数的关卡。</small>
+              </span>
+            </label>
+
+            <label className="check-line">
+              <input
+                type="checkbox"
+                checked={draft.useKeyedRegions}
+                onChange={event => updateDraft({ useKeyedRegions: event.target.checked })}
+              />
+              <span>
+                启用开局钥匙区域
+                <small>开启后允许生成器制造 2 格小区域来提高前期可解率；关闭时只使用普通区域生长。</small>
+              </span>
             </label>
           </div>
 
@@ -111,11 +161,13 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
           <div className="results-topline">
             <div>
               <span className="brand-kicker">RESULT</span>
-              <strong>{lastLevel ? lastLevel.id : '等待生成'}</strong>
+              <strong>{lastLevel ? lastLevel.id : lastResult ? statusLabel(lastResult.status) : '等待生成'}</strong>
             </div>
-            {lastLevel && (
-              <span className={diff === 0 ? 'hit-pill exact' : 'hit-pill near'}>
-                {diff === 0 ? '精确命中' : `偏差 ${diff! > 0 ? '+' : ''}${diff}`}
+            {lastResult && (
+              <span className={`hit-pill ${lastResult.status === 'exact' ? 'exact' : lastResult.status === 'approximate' ? 'near' : 'miss'}`}>
+                {lastResult.status === 'failed'
+                  ? '无可进入关卡'
+                  : diff === 0 ? '精确命中' : `偏差 ${diff! > 0 ? '+' : ''}${diff}`}
               </span>
             )}
           </div>
@@ -130,8 +182,61 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
           {isGenerating && (
             <div className="generator-empty">
               <span className="spinner" />
-              <strong>正在搜索目标步数附近的关卡</strong>
-              <span>优先找精确命中；找不到时返回最近且策略循环可完成的候选。</span>
+              <strong>正在搜索目标步数关卡</strong>
+              <span>关闭近似时不会返回偏离目标步数的关卡。</span>
+            </div>
+          )}
+
+          {lastResult && !isGenerating && (
+            <div className="diagnostic-grid">
+              <div>
+                <span>状态</span>
+                <strong>{statusLabel(lastResult.status)}</strong>
+              </div>
+              <div>
+                <span>尝试</span>
+                <strong>{lastResult.diagnostics.attempts}/{lastResult.diagnostics.maxAttempts}</strong>
+              </div>
+              <div>
+                <span>耗时</span>
+                <strong>{lastResult.diagnostics.elapsedMs}ms</strong>
+              </div>
+              <div>
+                <span>可解候选</span>
+                <strong>{lastResult.diagnostics.completeCandidates}</strong>
+              </div>
+              <div>
+                <span>不可解候选</span>
+                <strong>{lastResult.diagnostics.incompleteCandidates}</strong>
+              </div>
+              <div>
+                <span>最佳步数</span>
+                <strong>{lastResult.diagnostics.bestActualSteps ?? '-'}</strong>
+              </div>
+              <div>
+                <span>命中尝试</span>
+                <strong>{lastResult.diagnostics.selectedAttempt ?? '-'}</strong>
+              </div>
+              <div>
+                <span>派生种子</span>
+                <strong>{lastResult.diagnostics.selectedAttemptSeed ?? '-'}</strong>
+              </div>
+              <div>
+                <span>钥匙区域</span>
+                <strong>{lastResult.diagnostics.useKeyedRegions ? '开启' : '关闭'}</strong>
+              </div>
+            </div>
+          )}
+
+          {lastResult?.status === 'failed' && !isGenerating && (
+            <div className="result-warning">
+              没有命中目标步数，因此本次没有生成可进入主线的关卡。可以提高尝试上限、调整目标步数，或打开近似结果查看最近候选。
+            </div>
+          )}
+
+          {lastResult?.status === 'approximate' && !isGenerating && (
+            <div className="result-warning">
+              这是你允许的近似结果，已保留 seed 和搜索参数，方便复现或继续加大尝试次数。
             </div>
           )}
 

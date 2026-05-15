@@ -87,17 +87,16 @@ function CellComponent({
   if (!interactive) className += ' is-preview';
   if (animClass) className += ` ${animClass}`;
 
-  const regionBorder = '2.5px solid rgba(255,255,255,0.5)';
-  const thinBorder = '1px solid rgba(255,255,255,0.06)';
+  const regionBorder = '2px solid rgba(23,23,23,0.38)';
 
   const style: React.CSSProperties = {
     width: size,
     height: size,
     background: color,
-    borderTop: borders.top ? regionBorder : thinBorder,
-    borderRight: borders.right ? regionBorder : thinBorder,
-    borderBottom: borders.bottom ? regionBorder : thinBorder,
-    borderLeft: borders.left ? regionBorder : thinBorder,
+    borderTop: borders.top ? regionBorder : '0 none',
+    borderRight: borders.right ? regionBorder : '0 none',
+    borderBottom: borders.bottom ? regionBorder : '0 none',
+    borderLeft: borders.left ? regionBorder : '0 none',
   };
 
   return (

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import {
-  BoardState, Level, SolverResult, OpHistoryEntry,
+  BoardState, Level, SolverResult, OpHistoryEntry, GeneratorParams, GenerationResult,
 } from './types';
 import {
   createEmptyBoard, applyX, removeX, applyQueen,
@@ -9,7 +9,7 @@ import {
   formatPos,
 } from './rules';
 import { solve } from './solver';
-import { generateLevel } from './generator';
+import { generateLevelResult } from './generator';
 
 // ============================================================
 // Game Store — zustand
@@ -20,7 +20,10 @@ export type InteractionMode = 'markX' | 'confirmQueen';
 export type GeneratorDraft = {
   n: number;
   targetSteps: number;
-  seed: number;
+  seed: number | null;
+  maxAttempts: number;
+  allowApproximate: boolean;
+  useKeyedRegions: boolean;
 };
 
 interface GameState {
@@ -49,6 +52,7 @@ interface GameState {
   generationError: string | null;
   generatorDraft: GeneratorDraft;
   lastGeneratedLevel: Level | null;
+  lastGenerationResult: GenerationResult | null;
 
   // UI feedback
   message: string | null;
@@ -64,7 +68,7 @@ interface GameState {
   requestSolve: () => void;
   setSolverStep: (index: number) => void;
   setSolverPanelOpen: (open: boolean) => void;
-  requestGenerate: (n: number, targetSteps: number, seed?: number) => Promise<Level | null>;
+  requestGenerate: (params: GeneratorParams) => Promise<GenerationResult>;
   setGeneratorDraft: (patch: Partial<GeneratorDraft>) => void;
   enterGeneratedLevel: () => boolean;
   setGeneratorPanelOpen: (open: boolean) => void;
@@ -83,8 +87,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   generatorPanelOpen: false,
   isGenerating: false,
   generationError: null,
-  generatorDraft: { n: 7, targetSteps: 16, seed: 20260515 },
+  generatorDraft: {
+    n: 7,
+    targetSteps: 16,
+    seed: null,
+    maxAttempts: 2500,
+    allowApproximate: false,
+    useKeyedRegions: false,
+  },
   lastGeneratedLevel: null,
+  lastGenerationResult: null,
   message: null,
   messageType: 'info',
 
@@ -256,49 +268,92 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   setSolverPanelOpen: (open) => set({ solverPanelOpen: open }),
 
-  requestGenerate: async (n, targetSteps, seed?) => {
-    const actualSeed = seed ?? Date.now();
+  requestGenerate: async (params) => {
+    const actualSeed = params.seed ?? Date.now();
+    const maxAttempts = params.maxAttempts ?? get().generatorDraft.maxAttempts;
+    const allowApproximate = params.allowApproximate ?? get().generatorDraft.allowApproximate;
+    const useKeyedRegions = params.useKeyedRegions ?? get().generatorDraft.useKeyedRegions;
     set({
       isGenerating: true,
       generationError: null,
-      generatorDraft: { n, targetSteps, seed: actualSeed },
+      generatorDraft: {
+        n: params.n,
+        targetSteps: params.targetSteps,
+        seed: params.seed ?? null,
+        maxAttempts,
+        allowApproximate,
+        useKeyedRegions,
+      },
     });
 
     try {
-      // Run generation asynchronously (it's potentially slow)
-      const level = await new Promise<Level | null>((resolve) => {
+      const result = await new Promise<GenerationResult>((resolve) => {
         setTimeout(() => {
-          resolve(generateLevel({ n, targetSteps, seed: actualSeed }));
-        }, 50); // Small delay to let the UI update
+          resolve(generateLevelResult({
+            n: params.n,
+            targetSteps: params.targetSteps,
+            seed: actualSeed,
+            maxAttempts,
+            allowApproximate,
+            useKeyedRegions,
+          }));
+        }, 50);
       });
 
-      if (level) {
+      if (result.level) {
+        const level = result.level;
         set({
           isGenerating: false,
           lastGeneratedLevel: level,
-          message: level.actualSteps === targetSteps
+          lastGenerationResult: result,
+          message: result.status === 'exact'
             ? `生成完成: 精确命中 ${level.actualSteps} 步`
-            : `生成完成: 目标${targetSteps}步 / 实际${level.actualSteps}步`,
-          messageType: 'success',
+            : `生成完成: 近似结果 ${level.actualSteps} 步，目标 ${params.targetSteps} 步`,
+          messageType: result.status === 'exact' ? 'success' : 'info',
         });
-        return level;
+        return result;
       } else {
         set({
           isGenerating: false,
-          generationError: '生成失败，请尝试不同参数',
-          message: '关卡生成失败，请尝试其他参数',
+          lastGeneratedLevel: null,
+          lastGenerationResult: result,
+          generationError: `未命中目标: 已尝试 ${result.diagnostics.attempts}/${result.diagnostics.maxAttempts} 次`,
+          message: '关卡生成失败，没有返回不符合条件的关卡',
           messageType: 'error',
         });
-        return null;
+        return result;
       }
     } catch (e) {
+      const failed: GenerationResult = {
+        status: 'failed',
+        level: null,
+        diagnostics: {
+          status: 'failed',
+          attempts: 0,
+          maxAttempts,
+          elapsedMs: 0,
+          seed: actualSeed,
+          targetSteps: params.targetSteps,
+          bestActualSteps: null,
+          bestDiff: null,
+          selectedAttempt: null,
+          selectedAttemptSeed: null,
+          completeCandidates: 0,
+          incompleteCandidates: 0,
+          exactCandidates: 0,
+          allowApproximate,
+          useKeyedRegions,
+        },
+      };
       set({
         isGenerating: false,
+        lastGeneratedLevel: null,
+        lastGenerationResult: failed,
         generationError: `生成错误: ${String(e)}`,
         message: '生成过程出错',
         messageType: 'error',
       });
-      return null;
+      return failed;
     }
   },
 

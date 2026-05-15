@@ -72,15 +72,26 @@ function stepL1Unique(board: BoardState, index: number): SolverBatch | null {
   const uniq = findUniqueCandidates(board);
   if (uniq.length === 0) return null;
 
-  const confirmed = uniq.find(u => !board.cells[u.row][u.col].isQueen);
-  if (!confirmed) return null;
+  let b = cloneBoard(board);
+  const confirmed: Position[] = [];
+
+  for (const u of uniq) {
+    if (b.cells[u.row][u.col].isQueen) continue;
+    const result = applyQueen(b, u);
+    b = result.board;
+    confirmed.push(u);
+  }
+
+  if (confirmed.length === 0) return null;
+
+  const descParts = confirmed.map(u => formatPos(u));
 
   return {
     index,
     strategy: 'L1_Unique',
     eliminations: [], // rule 3: no eliminations in this batch
-    queenConfirmed: [confirmed],
-    description: `唯一候选确认 Queen: ${formatPos(confirmed)}`,
+    queenConfirmed: confirmed,
+    description: `唯一候选确认 Queen: ${descParts.join(', ')}`,
   };
 }
 
@@ -89,9 +100,17 @@ function stepL1Unique(board: BoardState, index: number): SolverBatch | null {
 function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
-  const eliminations: Position[] = [];
-  const elimSet = new Set<string>();
-  const reasons: string[] = [];
+
+  const makeBatch = (eliminations: Position[], reason: string): SolverBatch | null => {
+    if (eliminations.length === 0) return null;
+    return {
+      index,
+      strategy: 'L2_Lock1',
+      eliminations,
+      queenConfirmed: [],
+      description: `L2 单锁定: ${reason} — 消除 ${eliminations.length} 个 X`,
+    };
+  };
 
   // Region → Row
   for (const rid of regionIds) {
@@ -100,17 +119,15 @@ function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
     const rows = new Set(cands.map(c => c.row));
     if (rows.size === 1) {
       const row = cands[0].row;
+      const eliminations: Position[] = [];
       for (let c = 0; c < n; c++) {
         const cell = board.cells[row][c];
         if (cell.regionId !== rid && !cell.isQueen && !cell.isX) {
-          const key = `${row},${c}`;
-          if (!elimSet.has(key)) {
-            elimSet.add(key);
-            eliminations.push({ row, col: c });
-          }
+          eliminations.push({ row, col: c });
         }
       }
-      reasons.push(`区域${rid}候选全在第${row}行 → 锁定该行`);
+      const batch = makeBatch(eliminations, `区域${rid}候选全在第${row}行 → 锁定该行`);
+      if (batch) return batch;
     }
   }
 
@@ -121,17 +138,15 @@ function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
     const cols = new Set(cands.map(c => c.col));
     if (cols.size === 1) {
       const col = cands[0].col;
+      const eliminations: Position[] = [];
       for (let r = 0; r < n; r++) {
         const cell = board.cells[r][col];
         if (cell.regionId !== rid && !cell.isQueen && !cell.isX) {
-          const key = `${r},${col}`;
-          if (!elimSet.has(key)) {
-            elimSet.add(key);
-            eliminations.push({ row: r, col });
-          }
+          eliminations.push({ row: r, col });
         }
       }
-      reasons.push(`区域${rid}候选全在第${col}列 → 锁定该列`);
+      const batch = makeBatch(eliminations, `区域${rid}候选全在第${col}列 → 锁定该列`);
+      if (batch) return batch;
     }
   }
 
@@ -142,19 +157,17 @@ function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
     const rids = new Set(cands.map(c => board.cells[c.row][c.col].regionId));
     if (rids.size === 1) {
       const rid = rids.values().next().value as number;
+      const eliminations: Position[] = [];
       for (let rr = 0; rr < n; rr++) {
         for (let cc = 0; cc < n; cc++) {
           const cell = board.cells[rr][cc];
           if (cell.regionId === rid && rr !== r && !cell.isQueen && !cell.isX) {
-            const key = `${rr},${cc}`;
-            if (!elimSet.has(key)) {
-              elimSet.add(key);
-              eliminations.push({ row: rr, col: cc });
-            }
+            eliminations.push({ row: rr, col: cc });
           }
         }
       }
-      reasons.push(`第${r}行候选全在区域${rid} → 锁定该区域`);
+      const batch = makeBatch(eliminations, `第${r}行候选全在区域${rid} → 锁定该区域`);
+      if (batch) return batch;
     }
   }
 
@@ -165,39 +178,37 @@ function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
     const rids = new Set(cands.map(p => board.cells[p.row][p.col].regionId));
     if (rids.size === 1) {
       const rid = rids.values().next().value as number;
+      const eliminations: Position[] = [];
       for (let rr = 0; rr < n; rr++) {
         for (let cc = 0; cc < n; cc++) {
           const cell = board.cells[rr][cc];
           if (cell.regionId === rid && cc !== c && !cell.isQueen && !cell.isX) {
-            const key = `${rr},${cc}`;
-            if (!elimSet.has(key)) {
-              elimSet.add(key);
-              eliminations.push({ row: rr, col: cc });
-            }
+            eliminations.push({ row: rr, col: cc });
           }
         }
       }
-      reasons.push(`第${c}列候选全在区域${rid} → 锁定该区域`);
+      const batch = makeBatch(eliminations, `第${c}列候选全在区域${rid} → 锁定该区域`);
+      if (batch) return batch;
     }
   }
 
-  if (eliminations.length === 0) return null;
-
-  return {
-    index,
-    strategy: 'L2_Lock1',
-    eliminations,
-    queenConfirmed: [],
-    description: `L2 单锁定: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-  };
+  return null;
 }
 
 function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
-  const eliminations: Position[] = [];
-  const elimSet = new Set<string>();
-  const reasons: string[] = [];
+
+  const makeBatch = (eliminations: Position[], reason: string): SolverBatch | null => {
+    if (eliminations.length === 0) return null;
+    return {
+      index,
+      strategy: 'L2_Lock2',
+      eliminations,
+      queenConfirmed: [],
+      description: `L2 双锁定: ${reason} — 消除 ${eliminations.length} 个 X`,
+    };
+  };
 
   // 2 Rows → 2 Cols
   for (let r1 = 0; r1 < n; r1++) {
@@ -208,17 +219,18 @@ function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
       const cols = new Set([...cands1, ...cands2].map(c => c.col));
       if (cols.size === 2) {
         const colArr = Array.from(cols);
+        const eliminations: Position[] = [];
         for (let r = 0; r < n; r++) {
           if (r === r1 || r === r2) continue;
           for (const col of colArr) {
             const cell = board.cells[r][col];
             if (!cell.isQueen && !cell.isX) {
-              const key = `${r},${col}`;
-              if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row: r, col }); }
+              eliminations.push({ row: r, col });
             }
           }
         }
-        reasons.push(`第${r1}、${r2}行候选仅占${colArr.join(',')}列`);
+        const batch = makeBatch(eliminations, `第${r1}、${r2}行候选仅占${colArr.join(',')}列`);
+        if (batch) return batch;
       }
     }
   }
@@ -232,17 +244,18 @@ function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
       const rows = new Set([...cands1, ...cands2].map(c => c.row));
       if (rows.size === 2) {
         const rowArr = Array.from(rows);
+        const eliminations: Position[] = [];
         for (let c = 0; c < n; c++) {
           if (c === c1 || c === c2) continue;
           for (const row of rowArr) {
             const cell = board.cells[row][c];
             if (!cell.isQueen && !cell.isX) {
-              const key = `${row},${c}`;
-              if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row, col: c }); }
+              eliminations.push({ row, col: c });
             }
           }
         }
-        reasons.push(`第${c1}、${c2}列候选仅占${rowArr.join(',')}行`);
+        const batch = makeBatch(eliminations, `第${c1}、${c2}列候选仅占${rowArr.join(',')}行`);
+        if (batch) return batch;
       }
     }
   }
@@ -257,16 +270,17 @@ function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
       const rows = new Set([...cands1, ...cands2].map(c => c.row));
       if (rows.size === 2) {
         const rowArr = Array.from(rows);
+        const eliminations: Position[] = [];
         for (const row of rowArr) {
           for (let c = 0; c < n; c++) {
             const cell = board.cells[row][c];
             if (cell.regionId !== rid1 && cell.regionId !== rid2 && !cell.isQueen && !cell.isX) {
-              const key = `${row},${c}`;
-              if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row, col: c }); }
+              eliminations.push({ row, col: c });
             }
           }
         }
-        reasons.push(`区域${rid1}、${rid2}候选仅占${rowArr.join(',')}行`);
+        const batch = makeBatch(eliminations, `区域${rid1}、${rid2}候选仅占${rowArr.join(',')}行`);
+        if (batch) return batch;
       }
     }
   }
@@ -281,37 +295,37 @@ function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
       const cols = new Set([...cands1, ...cands2].map(c => c.col));
       if (cols.size === 2) {
         const colArr = Array.from(cols);
+        const eliminations: Position[] = [];
         for (const col of colArr) {
           for (let r = 0; r < n; r++) {
             const cell = board.cells[r][col];
             if (cell.regionId !== rid1 && cell.regionId !== rid2 && !cell.isQueen && !cell.isX) {
-              const key = `${r},${col}`;
-              if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row: r, col }); }
+              eliminations.push({ row: r, col });
             }
           }
         }
-        reasons.push(`区域${rid1}、${rid2}候选仅占${colArr.join(',')}列`);
+        const batch = makeBatch(eliminations, `区域${rid1}、${rid2}候选仅占${colArr.join(',')}列`);
+        if (batch) return batch;
       }
     }
   }
 
-  if (eliminations.length === 0) return null;
-
-  return {
-    index,
-    strategy: 'L2_Lock2',
-    eliminations,
-    queenConfirmed: [],
-    description: `L2 双锁定: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-  };
+  return null;
 }
 
 function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
-  const regionIds = getRegionIds(board);
-  const eliminations: Position[] = [];
-  const elimSet = new Set<string>();
-  const reasons: string[] = [];
+
+  const makeBatch = (eliminations: Position[], reason: string): SolverBatch | null => {
+    if (eliminations.length === 0) return null;
+    return {
+      index,
+      strategy: 'L2_Lock3',
+      eliminations,
+      queenConfirmed: [],
+      description: `L2 三锁定: ${reason} — 消除 ${eliminations.length} 个 X`,
+    };
+  };
 
   function* combos3<T>(arr: T[]): Generator<T[]> {
     for (let i = 0; i < arr.length; i++)
@@ -330,17 +344,18 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
     const cols = new Set([...cands1, ...cands2, ...cands3].map(c => c.col));
     if (cols.size === 3) {
       const colArr = Array.from(cols);
+      const eliminations: Position[] = [];
       for (let r = 0; r < n; r++) {
         if (r === r1 || r === r2 || r === r3) continue;
         for (const col of colArr) {
           const cell = board.cells[r][col];
           if (!cell.isQueen && !cell.isX) {
-            const key = `${r},${col}`;
-            if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row: r, col }); }
+            eliminations.push({ row: r, col });
           }
         }
       }
-      reasons.push(`第${r1}、${r2}、${r3}行候选仅占${colArr.length}列`);
+      const batch = makeBatch(eliminations, `第${r1}、${r2}、${r3}行候选仅占${colArr.length}列`);
+      if (batch) return batch;
     }
   }
 
@@ -354,29 +369,22 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
     const rowsSet = new Set([...cands1, ...cands2, ...cands3].map(c => c.row));
     if (rowsSet.size === 3) {
       const rowArr = Array.from(rowsSet);
+      const eliminations: Position[] = [];
       for (let c = 0; c < n; c++) {
         if (c === c1 || c === c2 || c === c3) continue;
         for (const row of rowArr) {
           const cell = board.cells[row][c];
           if (!cell.isQueen && !cell.isX) {
-            const key = `${row},${c}`;
-            if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row, col: c }); }
+            eliminations.push({ row, col: c });
           }
         }
       }
-      reasons.push(`第${c1}、${c2}、${c3}列候选仅占${rowArr.length}行`);
+      const batch = makeBatch(eliminations, `第${c1}、${c2}、${c3}列候选仅占${rowArr.length}行`);
+      if (batch) return batch;
     }
   }
 
-  if (eliminations.length === 0) return null;
-
-  return {
-    index,
-    strategy: 'L2_Lock3',
-    eliminations,
-    queenConfirmed: [],
-    description: `L2 三锁定: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-  };
+  return null;
 }
 
 // ---- Level 3 ----
@@ -384,9 +392,6 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
 function stepL3Projection(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
-  const eliminations: Position[] = [];
-  const elimSet = new Set<string>();
-  const reasons: string[] = [];
 
   // Collect units with 2-3 candidates (limit to 3 for performance)
   const units: { candidates: Position[]; label: string }[] = [];
@@ -406,6 +411,9 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
 
   for (const unit of units) {
     const cands = unit.candidates;
+    const eliminations: Position[] = [];
+    const elimSet = new Set<string>();
+    const reasons: string[] = [];
 
     // Common projection intersection
     const projections: Set<string>[] = [];
@@ -440,6 +448,16 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
         elimSet.add(key);
         eliminations.push({ row: r, col: c });
       }
+    }
+    if (eliminations.length > 0) {
+      reasons.push(`${unit.label} 的所有候选都会排除这些公共格`);
+      return {
+        index,
+        strategy: 'L3_Projection',
+        eliminations,
+        queenConfirmed: [],
+        description: `L3 投影: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
+      };
     }
 
     // Single-step fatality
@@ -495,25 +513,24 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
         }
       }
     }
+
+    if (eliminations.length > 0) {
+      return {
+        index,
+        strategy: 'L3_Projection',
+        eliminations,
+        queenConfirmed: [],
+        description: `L3 投影: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
+      };
+    }
   }
 
-  if (eliminations.length === 0) return null;
-
-  return {
-    index,
-    strategy: 'L3_Projection',
-    eliminations,
-    queenConfirmed: [],
-    description: `L3 投影: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-  };
+  return null;
 }
 
 function stepL3Capacity(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
-  const eliminations: Position[] = [];
-  const elimSet = new Set<string>();
-  const reasons: string[] = [];
 
   for (let r = 0; r < n - 1; r++) {
     for (let c = 0; c < n - 1; c++) {
@@ -534,6 +551,8 @@ function stepL3Capacity(board: BoardState, index: number): SolverBatch | null {
 
       if (trappedRegions.length >= 1) {
         const ownerRid = trappedRegions[0];
+        const eliminations: Position[] = [];
+        const elimSet = new Set<string>();
         for (const pos of blockCells) {
           const cell = board.cells[pos.row][pos.col];
           if (cell.isQueen || cell.isX) continue;
@@ -543,21 +562,19 @@ function stepL3Capacity(board: BoardState, index: number): SolverBatch | null {
           }
         }
         if (eliminations.length > 0) {
-          reasons.push(`2×2(${r},${c})被区域${ownerRid}独占`);
+          return {
+            index,
+            strategy: 'L3_Capacity',
+            eliminations,
+            queenConfirmed: [],
+            description: `L3 容量: 2×2(${r},${c})被区域${ownerRid}独占 — 消除 ${eliminations.length} 个 X`,
+          };
         }
       }
     }
   }
 
-  if (eliminations.length === 0) return null;
-
-  return {
-    index,
-    strategy: 'L3_Capacity',
-    eliminations,
-    queenConfirmed: [],
-    description: `L3 容量: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-  };
+  return null;
 }
 
 // ---- Main solver ----

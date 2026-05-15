@@ -65,6 +65,38 @@ export type GeneratorParams = {
   n: number;
   targetSteps: number;
   seed?: number;
+  maxAttempts?: number;
+  allowApproximate?: boolean;
+  useKeyedRegions?: boolean;
+};
+
+/** Generator search outcome */
+export type GenerationStatus = 'exact' | 'approximate' | 'failed';
+
+/** Generator diagnostics surfaced to UI */
+export type GenerationDiagnostics = {
+  status: GenerationStatus;
+  attempts: number;
+  maxAttempts: number;
+  elapsedMs: number;
+  seed: number;
+  targetSteps: number;
+  bestActualSteps: number | null;
+  bestDiff: number | null;
+  selectedAttempt: number | null;
+  selectedAttemptSeed: number | null;
+  completeCandidates: number;
+  incompleteCandidates: number;
+  exactCandidates: number;
+  allowApproximate: boolean;
+  useKeyedRegions: boolean;
+};
+
+/** Full generator result: a level only exists for exact or accepted approximate hits */
+export type GenerationResult = {
+  status: GenerationStatus;
+  level: Level | null;
+  diagnostics: GenerationDiagnostics;
 };
 
 /** Player board state */

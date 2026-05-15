@@ -82,20 +82,20 @@ export default function SolverPanel() {
           {/* Current step info */}
           {currentBatch && (
             <div style={{
-              background: 'rgba(255,255,255,0.04)',
-              borderRadius: 6,
-              padding: '8px 10px',
-              marginBottom: 10,
-              fontSize: 12,
+              background: 'rgba(23,23,23,0.04)',
+              borderRadius: 8,
+              padding: '10px 12px',
+              marginBottom: 12,
+              fontSize: 13,
               lineHeight: 1.5,
             }}>
-              <span className={`batch-strategy-tag strat-${currentBatch.strategy}`} style={{ marginRight: 6 }}>
+              <span className={`batch-strategy-tag strat-${currentBatch.strategy}`} style={{ marginRight: 8 }}>
                 {currentBatch.strategy}
               </span>
-              <span style={{ color: '#ccc', fontWeight: 500 }}>
+              <span style={{ color: 'var(--ink)', fontWeight: 700 }}>
                 步 {currentBatch.index}:
-              </span>
-              <span style={{ color: '#999' }}> {currentBatch.description}</span>
+              </span>{' '}
+              <span style={{ color: 'var(--muted)' }}>{currentBatch.description}</span>
             </div>
           )}
 
