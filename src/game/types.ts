@@ -68,6 +68,8 @@ export type GeneratorParams = {
   maxAttempts?: number;
   allowApproximate?: boolean;
   useKeyedRegions?: boolean;
+  /** Number of anchor Queens (1-4). When set, overrides random selection. */
+  anchorCount?: number;
 };
 
 /** Generator search outcome */
@@ -90,6 +92,12 @@ export type GenerationDiagnostics = {
   exactCandidates: number;
   allowApproximate: boolean;
   useKeyedRegions: boolean;
+  /** Anchor strategy used in the best/returned level */
+  anchorStrategy: string | null;
+  /** Indices of Queens used as anchors */
+  anchorQueenIndices: number[] | null;
+  /** Number of anchor regions requested */
+  anchorCount: number | null;
 };
 
 /** Full generator result: a level only exists for exact or accepted approximate hits */

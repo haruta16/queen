@@ -393,9 +393,8 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
   const n = board.n;
   const regionIds = getRegionIds(board);
 
-  // Collect units with few enough candidates for projection.
-  // Cap at ceil(n/2) so that for n=5→3, n=10→5 candidates.
-  const maxCands = Math.max(3, Math.ceil(n / 2));
+  // Collect units with 2 to n candidates for projection check.
+  const maxCands = n;
   const units: { candidates: Position[]; label: string }[] = [];
 
   for (let r = 0; r < n; r++) {

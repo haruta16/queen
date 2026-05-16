@@ -17,6 +17,7 @@ import { createEmptyBoard, getQueenPositions } from './rules';
 import { solve, applyBatchesUpTo } from './solver';
 import { createRNG, shuffle, randInt } from './random';
 import { generateQueenPositions, generateRegions } from './generator';
+import { buildAnchorRegions, pickAnchorSpecs, AnchorSpec } from './anchorGenerator';
 
 const DIRS_4 = [
   { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
@@ -122,15 +123,16 @@ function refineLevel(
 }
 
 export function generateLevelReverse(params: GeneratorParams): GenerationResult {
-  const { n, targetSteps, seed } = params;
+  const { n, targetSteps, seed, anchorCount: requestedAnchorCount } = params;
   const actualSeed = seed ?? Date.now();
   const startedAt = Date.now();
   const isLargeN = n >= 8;
 
-  // Scale attempts with n and targetSteps
+  // Scale search effort
   const maxLayouts = Math.max(20, Math.min(500,
     params.maxAttempts ?? Math.max(60, n * 8 + targetSteps * 3)));
   const subBudget = 12 + Math.floor(n * 1.5);
+  const anchorSpecsPerLayout = 2 + Math.floor(n / 4); // 2-4 anchor specs per Queen layout
   const allowApproximate = params.allowApproximate ?? false;
 
   let bestLevel: Level | null = null;
@@ -139,6 +141,9 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
   let completeCandidates = 0;
   let incompleteCandidates = 0;
   let exactCandidates = 0;
+  let bestAnchorStrategy: string | null = null;
+  let bestAnchorIndices: number[] | null = null;
+  let effectiveAnchorCount: number | null = null;
 
   const makeDiagnostics = (status: GenerationStatus): GenerationDiagnostics => ({
     status, attempts, maxAttempts: maxLayouts,
@@ -150,6 +155,9 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
     selectedAttemptSeed: bestLevel ? actualSeed + (bestLevel ? attempts : 0) * 7919 : null,
     completeCandidates, incompleteCandidates, exactCandidates,
     allowApproximate, useKeyedRegions: false,
+    anchorStrategy: bestAnchorStrategy,
+    anchorQueenIndices: bestAnchorIndices,
+    anchorCount: effectiveAnchorCount,
   });
 
   for (let layoutIdx = 0; layoutIdx < maxLayouts; layoutIdx++) {
@@ -162,63 +170,71 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
       queenPositions = generateQueenPositions(n, rng);
     } catch { continue; }
 
-    // Binary search on shapeBias for this Queen layout.
-    // Lower bias → less axis alignment → more free-form → potentially more steps.
-    // Higher bias → more axis alignment → more structured → potentially fewer steps.
-    let lo = 0.0;
-    let hi = 1.0;
+    // ── Two-phase generation: anchors → fill → verify → refine ──
+    // Try multiple anchor specs per Queen layout.
+    // If an anchor spec + some shapeBias produces a complete board,
+    // record it and continue binary-searching for better step match.
+    for (let ai = 0; ai < anchorSpecsPerLayout; ai++) {
+      const anchorRng = createRNG(layoutSeed * 10000 + ai * 7777 + 1);
+      const specs = pickAnchorSpecs(n, queenPositions.length, anchorRng, requestedAnchorCount);
+      const anchors = buildAnchorRegions(n, queenPositions, specs, anchorRng);
 
-    // Initial guess: normalize targetSteps to expected range
-    const stepRatio = targetSteps / Math.max(2, n * 6);
-    let shapeBias = 1.0 - Math.max(0.05, Math.min(0.95, stepRatio));
+      // Record anchor diagnostics for this attempt
+      const allAnchorIndices = specs.flatMap(s => s.queenIndices);
+      const strategyLabels = specs.map(s => s.strategy).join('+');
 
-    for (let sub = 0; sub < subBudget; sub++) {
-      const subRng = createRNG(layoutSeed * 1000 + sub * 137 + 1);
+      // Binary search on shapeBias for the fill phase.
+      // Anchors are frozen; shapeBias affects only non-anchor region growth.
+      let lo = 0.0, hi = 1.0;
+      const stepRatio = targetSteps / Math.max(2, n * 6);
+      let shapeBias = 1.0 - Math.max(0.05, Math.min(0.95, stepRatio));
 
-      const regions = generateRegions(n, queenPositions, shapeBias, subRng);
-      const board = createEmptyBoard(n, regions);
-      const rawResult = solve(board);
+      for (let sub = 0; sub < subBudget; sub++) {
+        const fillRng = createRNG(layoutSeed * 100000 + ai * 7777 + sub * 137 + 1);
+        const regions = generateRegions(n, queenPositions, shapeBias, fillRng, anchors);
+        const board = createEmptyBoard(n, regions);
+        const rawResult = solve(board);
 
-      if (!rawResult.complete) { incompleteCandidates++; continue; }
+        if (!rawResult.complete) { incompleteCandidates++; continue; }
 
-      completeCandidates++;
-      const solvedBoard = applyBatchesUpTo(board, rawResult.batches, rawResult.totalSteps);
+        completeCandidates++;
+        const solvedBoard = applyBatchesUpTo(board, rawResult.batches, rawResult.totalSteps);
 
-      let level: Level = {
-        id: `L${n}x${n}-opt-${actualSeed}-${layoutIdx}-${sub}`, n, regions,
-        solution: getQueenPositions(solvedBoard), seed: actualSeed, targetSteps,
-        actualSteps: rawResult.totalSteps,
-        strategySequence: rawResult.batches.map(b => b.strategy),
-        solverResult: rawResult,
-      };
+        let level: Level = {
+          id: `L${n}x${n}-${actualSeed}-${layoutIdx}-${ai}-${sub}`, n, regions,
+          solution: getQueenPositions(solvedBoard), seed: actualSeed, targetSteps,
+          actualSteps: rawResult.totalSteps,
+          strategySequence: rawResult.batches.map(b => b.strategy),
+          solverResult: rawResult,
+        };
 
-      // Refine
-      const baseDiff = Math.abs(rawResult.totalSteps - targetSteps);
-      const refineBudget = Math.max(10, Math.min(80, baseDiff * 6));
-      level = refineLevel(level, queenPositions, targetSteps, subRng, refineBudget);
+        // Refine region boundaries to tune step count
+        const baseDiff = Math.abs(rawResult.totalSteps - targetSteps);
+        const refineBudget = Math.max(10, Math.min(80, baseDiff * 6));
+        const refineRng = createRNG(layoutSeed * 1000000 + ai * 7777 + sub * 137 + 1);
+        level = refineLevel(level, queenPositions, targetSteps, refineRng, refineBudget);
 
-      const diff = level.actualSteps - targetSteps;
+        const diff = level.actualSteps - targetSteps;
+        if (diff === 0) {
+          exactCandidates++;
+          bestAnchorStrategy = strategyLabels;
+          bestAnchorIndices = allAnchorIndices;
+          effectiveAnchorCount = allAnchorIndices.length;
+          return { status: 'exact', level, diagnostics: makeDiagnostics('exact') };
+        }
+        if (Math.abs(diff) < bestDiff) {
+          bestDiff = Math.abs(diff); bestLevel = level;
+          bestAnchorStrategy = strategyLabels;
+          bestAnchorIndices = allAnchorIndices;
+          effectiveAnchorCount = allAnchorIndices.length;
+        }
 
-      if (diff === 0) {
-        exactCandidates++;
-        bestLevel = level;
-        return { status: 'exact', level, diagnostics: makeDiagnostics('exact') };
+        // Binary search update
+        if (diff < 0) { hi = shapeBias; shapeBias = (lo + hi) / 2; }
+        else { lo = shapeBias; shapeBias = (lo + hi) / 2; }
+
+        if (hi - lo < 0.02) break; // converged for this anchor spec
       }
-
-      if (Math.abs(diff) < bestDiff) { bestDiff = Math.abs(diff); bestLevel = level; }
-
-      // Binary search update
-      if (diff < 0) {
-        // Too few steps → try lower bias (more free-form, potentially more steps)
-        hi = shapeBias;
-        shapeBias = (lo + hi) / 2;
-      } else {
-        // Too many steps → try higher bias (more structured, potentially fewer steps)
-        lo = shapeBias;
-        shapeBias = (lo + hi) / 2;
-      }
-
-      if (hi - lo < 0.02) break; // converged
     }
   }
 

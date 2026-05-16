@@ -55,26 +55,49 @@ export function generateQueenPositions(n: number, rng: () => number): Position[]
   return solution;
 }
 
-/** Multi-source competitive region growth with no locked singleton scaffolds */
+/** Multi-source competitive region growth with optional pre-built anchor cells */
 export function generateRegions(
   n: number,
   queenPositions: Position[],
   shapeBias: number,
   rng: () => number,
+  anchorRegions?: Region[],
 ): Region[] {
   const numRegions = queenPositions.length;
   const regionId: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
   const regionCells: Position[][] = Array.from({ length: numRegions }, () => []);
   const bias = Math.max(0, Math.min(1, shapeBias));
 
+  // Track locked (pre-assigned) cells
+  const locked = new Set<string>();
+
+  // Place Queens
   for (let i = 0; i < queenPositions.length; i++) {
     const { row, col } = queenPositions[i];
     regionId[row][col] = i;
     regionCells[i].push({ row, col });
+    locked.add(`${row},${col}`);
+  }
+
+  // Pre-load anchor region cells
+  if (anchorRegions) {
+    for (const anchor of anchorRegions) {
+      for (const cell of anchor.cells) {
+        const key = `${cell.row},${cell.col}`;
+        if (locked.has(key)) continue; // skip Queen cells (already placed)
+        regionId[cell.row][cell.col] = anchor.id;
+        regionCells[anchor.id].push({ ...cell });
+        locked.add(key);
+      }
+    }
   }
 
   const minRegionSize = 2;
   const totalCells = n * n;
+  // Count cells already assigned (locked)
+  const preAssigned = locked.size;
+  const unassignedTotal = totalCells - preAssigned;
+
   const targetSizes: number[] = Array(numRegions).fill(minRegionSize);
   let remainingCells = totalCells - minRegionSize * numRegions;
 
@@ -99,7 +122,15 @@ export function generateRegions(
     }
   }
 
-  const currentSizes: number[] = Array(numRegions).fill(1);
+  // Track which regions are frozen (anchors — should not grow during BFS fill)
+  const frozenRegions = new Set<number>();
+  if (anchorRegions) {
+    for (const anchor of anchorRegions) {
+      frozenRegions.add(anchor.id);
+    }
+  }
+
+  const currentSizes: number[] = regionCells.map(c => c.length); // accounts for anchor cells
   const dirs = [
     { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
     { dr: 0, dc: -1 }, { dr: 0, dc: 1 },
@@ -117,18 +148,21 @@ export function generateRegions(
     const neighbors: Position[] = [];
     for (const { dr, dc } of dirs) {
       const nr = pos.row + dr, nc = pos.col + dc;
-      if (nr >= 0 && nr < n && nc >= 0 && nc < n && regionId[nr][nc] === -1) {
+      if (nr >= 0 && nr < n && nc >= 0 && nc < n && regionId[nr][nc] === -1 && !locked.has(`${nr},${nc}`)) {
         neighbors.push({ row: nr, col: nc });
       }
     }
     return neighbors;
   }
 
-  let unassigned = totalCells - numRegions;
+  let unassigned = totalCells - regionCells.reduce((sum, c) => sum + c.length, 0);
   while (unassigned > 0) {
     const options: { rid: number; pos: Position; score: number }[] = [];
 
     for (let rid = 0; rid < numRegions; rid++) {
+      if (frozenRegions.has(rid)) continue; // anchor regions don't grow
+      // Hard cap: prevent any region from growing beyond 2*n cells
+      if (currentSizes[rid] >= n * 2) continue;
       const canOverflow = currentSizes.every((size, index) => size >= targetSizes[index]);
       if (!canOverflow && currentSizes[rid] >= targetSizes[rid]) continue;
 
@@ -183,7 +217,8 @@ export function generateRegions(
         }
         if (adjacentRegions.size === 0) continue;
 
-        const candidateRegions = Array.from(adjacentRegions);
+        const candidateRegions = Array.from(adjacentRegions).filter(rid => !frozenRegions.has(rid));
+        if (candidateRegions.length === 0) continue;
         let bestRid = -1, bestSize = Infinity;
         for (const rid of candidateRegions) {
           if (currentSizes[rid] < bestSize) {
@@ -202,12 +237,12 @@ export function generateRegions(
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (regionId[r][c] !== -1) continue;
-      let bestRid = 0;
+      let bestRid = -1;
       let bestDist = Infinity;
       for (let rr = 0; rr < n; rr++) {
         for (let cc = 0; cc < n; cc++) {
           const rid = regionId[rr][cc];
-          if (rid === -1) continue;
+          if (rid === -1 || frozenRegions.has(rid)) continue;
           const dist = Math.abs(rr - r) + Math.abs(cc - c);
           if (dist < bestDist) {
             bestDist = dist;
@@ -215,6 +250,7 @@ export function generateRegions(
           }
         }
       }
+      if (bestRid === -1) bestRid = 0; // fallback
       regionId[r][c] = bestRid;
       currentSizes[bestRid]++;
       regionCells[bestRid].push({ row: r, col: c });
@@ -523,11 +559,12 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const allowApproximate = params.allowApproximate ?? false;
   const useKeyedRegions = params.useKeyedRegions ?? false;
 
-  // Phase 1: Try reverse generator (fast, constraint-aware)
+  // Phase 1: Try reverse generator (anchors + fill)
   const reverseResult = generateLevelReverse({
     ...params,
     seed: actualSeed,
     allowApproximate: false,
+    anchorCount: params.anchorCount,
   });
   if (reverseResult.status === 'exact') {
     reverseResult.diagnostics.elapsedMs = Date.now() - startedAt;
@@ -577,6 +614,9 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
     exactCandidates,
     allowApproximate,
     useKeyedRegions,
+    anchorStrategy: null,
+    anchorQueenIndices: null,
+    anchorCount: params.anchorCount ?? null,
   });
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {

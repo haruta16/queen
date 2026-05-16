@@ -343,6 +343,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           exactCandidates: 0,
           allowApproximate,
           useKeyedRegions,
+          anchorStrategy: null,
+          anchorQueenIndices: null,
+          anchorCount: params.anchorCount ?? null,
         },
       };
       set({
