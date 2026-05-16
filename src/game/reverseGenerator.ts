@@ -1,13 +1,7 @@
 /**
- * Optimized Generator
- *
- * Uses the EXACT same region construction as the original generator
- * (proven to produce solvable puzzles), but replaces random shapeBias
- * sampling with binary search for faster convergence to targetSteps.
- *
- * Key improvement: for each Queen layout, binary-search shapeBias to
- * find the step count. This converges in O(log n) iterations per layout
- * instead of random sampling.
+ * Reverse Generator — constructs a solvable puzzle by searching over
+ * Queen layouts, using binary search on shapeBias and region refinement
+ * to approach the target step count.
  */
 
 import {
@@ -53,8 +47,6 @@ function isConnected(cells: Position[]): boolean {
 function cloneRegions(regions: Region[]): Region[] {
   return regions.map(r => ({ id: r.id, cells: r.cells.map(p => ({ ...p })) }));
 }
-
-// ─── Mutation & Refinement ─────────────────────────────────────
 
 function tryMutateRegions(
   n: number,
@@ -129,22 +121,16 @@ function refineLevel(
   return best;
 }
 
-// ─── Main Entry Point ──────────────────────────────────────────
-
-/**
- * Optimized generator: uses the proven region construction algorithm
- * with binary search on shapeBias for faster convergence.
- *
- * This is the primary generator. It replaces the old brute-force
- * approach (thousands of random attempts) with binary search per
- * Queen layout (tens of attempts).
- */
 export function generateLevelReverse(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed } = params;
   const actualSeed = seed ?? Date.now();
   const startedAt = Date.now();
-  // Scale attempts with difficulty. Harder targets need more layouts.
-  const maxAttempts = Math.max(8, Math.min(500, params.maxAttempts ?? Math.max(30, n * 5 + targetSteps)));
+  const isLargeN = n >= 8;
+
+  // Scale attempts with n and targetSteps
+  const maxLayouts = Math.max(20, Math.min(500,
+    params.maxAttempts ?? Math.max(60, n * 8 + targetSteps * 3)));
+  const subBudget = 12 + Math.floor(n * 1.5);
   const allowApproximate = params.allowApproximate ?? false;
 
   let bestLevel: Level | null = null;
@@ -155,19 +141,21 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
   let exactCandidates = 0;
 
   const makeDiagnostics = (status: GenerationStatus): GenerationDiagnostics => ({
-    status, attempts, maxAttempts, elapsedMs: Date.now() - startedAt,
+    status, attempts, maxAttempts: maxLayouts,
+    elapsedMs: Date.now() - startedAt,
     seed: actualSeed, targetSteps,
     bestActualSteps: bestLevel?.actualSteps ?? null,
     bestDiff: bestLevel ? bestLevel.actualSteps - targetSteps : null,
     selectedAttempt: bestLevel ? attempts : null,
     selectedAttemptSeed: bestLevel ? actualSeed + (bestLevel ? attempts : 0) * 7919 : null,
-    completeCandidates, incompleteCandidates, exactCandidates, allowApproximate, useKeyedRegions: false,
+    completeCandidates, incompleteCandidates, exactCandidates,
+    allowApproximate, useKeyedRegions: false,
   });
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    attempts = attempt + 1;
-    const attemptSeed = actualSeed + attempt * 7919 + targetSteps * 101;
-    const rng = createRNG(attemptSeed);
+  for (let layoutIdx = 0; layoutIdx < maxLayouts; layoutIdx++) {
+    attempts = layoutIdx + 1;
+    const layoutSeed = actualSeed + layoutIdx * 7919 + targetSteps * 101;
+    const rng = createRNG(layoutSeed);
 
     let queenPositions: Position[];
     try {
@@ -175,20 +163,17 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
     } catch { continue; }
 
     // Binary search on shapeBias for this Queen layout.
-    // Lower shapeBias → more free-form → usually more steps.
-    // Higher shapeBias → more axis-aligned → usually fewer steps.
-    // We try 8-12 refinements per Queen layout.
+    // Lower bias → less axis alignment → more free-form → potentially more steps.
+    // Higher bias → more axis alignment → more structured → potentially fewer steps.
     let lo = 0.0;
     let hi = 1.0;
 
-    // Initial guess: normalize targetSteps to the expected range
+    // Initial guess: normalize targetSteps to expected range
     const stepRatio = targetSteps / Math.max(2, n * 6);
     let shapeBias = 1.0 - Math.max(0.05, Math.min(0.95, stepRatio));
 
-    const subBudget = 12 + Math.floor(n * 1.2);
-
     for (let sub = 0; sub < subBudget; sub++) {
-      const subRng = createRNG(attemptSeed * 1000 + sub * 137 + 1);
+      const subRng = createRNG(layoutSeed * 1000 + sub * 137 + 1);
 
       const regions = generateRegions(n, queenPositions, shapeBias, subRng);
       const board = createEmptyBoard(n, regions);
@@ -200,7 +185,7 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
       const solvedBoard = applyBatchesUpTo(board, rawResult.batches, rawResult.totalSteps);
 
       let level: Level = {
-        id: `L${n}x${n}-opt-${actualSeed}-${attempt}-${sub}`, n, regions,
+        id: `L${n}x${n}-opt-${actualSeed}-${layoutIdx}-${sub}`, n, regions,
         solution: getQueenPositions(solvedBoard), seed: actualSeed, targetSteps,
         actualSteps: rawResult.totalSteps,
         strategySequence: rawResult.batches.map(b => b.strategy),
@@ -209,7 +194,7 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
 
       // Refine
       const baseDiff = Math.abs(rawResult.totalSteps - targetSteps);
-      const refineBudget = Math.max(8, Math.min(60, baseDiff * 5));
+      const refineBudget = Math.max(10, Math.min(80, baseDiff * 6));
       level = refineLevel(level, queenPositions, targetSteps, subRng, refineBudget);
 
       const diff = level.actualSteps - targetSteps;
@@ -224,16 +209,16 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
 
       // Binary search update
       if (diff < 0) {
-        // Too few steps → need lower bias (more free-form)
+        // Too few steps → try lower bias (more free-form, potentially more steps)
         hi = shapeBias;
         shapeBias = (lo + hi) / 2;
       } else {
-        // Too many steps → need higher bias (more alignment)
+        // Too many steps → try higher bias (more structured, potentially fewer steps)
         lo = shapeBias;
         shapeBias = (lo + hi) / 2;
       }
 
-      if (hi - lo < 0.03) break; // converged for this layout
+      if (hi - lo < 0.02) break; // converged
     }
   }
 

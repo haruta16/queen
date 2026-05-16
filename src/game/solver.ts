@@ -393,20 +393,22 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
   const n = board.n;
   const regionIds = getRegionIds(board);
 
-  // Collect units with 2-3 candidates (limit to 3 for performance)
+  // Collect units with few enough candidates for projection.
+  // Cap at ceil(n/2) so that for n=5→3, n=10→5 candidates.
+  const maxCands = Math.max(3, Math.ceil(n / 2));
   const units: { candidates: Position[]; label: string }[] = [];
 
   for (let r = 0; r < n; r++) {
     const cands = getCandidatesInRow(board, r);
-    if (cands.length >= 2 && cands.length <= 3) units.push({ candidates: cands, label: `第${r}行` });
+    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `第${r}行` });
   }
   for (let c = 0; c < n; c++) {
     const cands = getCandidatesInCol(board, c);
-    if (cands.length >= 2 && cands.length <= 3) units.push({ candidates: cands, label: `第${c}列` });
+    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `第${c}列` });
   }
   for (const rid of regionIds) {
     const cands = getCandidatesInRegion(board, rid);
-    if (cands.length >= 2 && cands.length <= 3) units.push({ candidates: cands, label: `区域${rid}` });
+    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `区域${rid}` });
   }
 
   for (const unit of units) {

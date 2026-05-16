@@ -104,11 +104,13 @@ export function generateRegions(
     { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
     { dr: 0, dc: -1 }, { dr: 0, dc: 1 },
   ];
+  // For n>=8, eliminate "free" orientation to prevent overgrown regions.
+  const freeThreshold = n >= 8 ? 0 : 0.2;
   const orientations = Array.from({ length: numRegions }, () => {
     const roll = rng();
-    if (roll < 0.4) return 'row';
-    if (roll < 0.8) return 'col';
-    return 'free';
+    if (roll < freeThreshold) return 'free';
+    if (roll < 0.5 + freeThreshold * 0.5) return 'row';
+    return 'col';
   });
 
   function unassignedNeighbors(pos: Position): Position[] {
@@ -144,7 +146,7 @@ export function generateRegions(
             (orientation === 'col' && pos.col === seed.col);
           const underTarget = Math.max(0, targetSizes[rid] - currentSizes[rid]);
           const bootstrap = currentSizes[rid] < minRegionSize ? 40 : 0;
-          const lineScore = onPreferredLine ? 2 + bias * 7 : 0;
+          const lineScore = onPreferredLine ? (2 + bias * 7) * Math.max(2, Math.ceil(n * 0.5)) : 0;
           const sizeScore = underTarget * (1.1 + bias * 1.2);
           options.push({
             rid,
@@ -658,10 +660,12 @@ export function generateLevel(params: GeneratorParams): Level | null {
  * Map user-friendly complexity labels to targetSteps range for a given n.
  */
 export function complexityToTargetSteps(n: number, label: '简单' | '中等' | '困难'): number {
+  // Achievable step ranges (derived from empirical testing):
+  // n=5: 8-15, n=6: 10-17, n=7: 12-19, n=8: 14-22, n=9: 16-26, n=10: 18-30
   const ranges: Record<number, { min: number; max: number }> = {
-    5: { min: 8, max: 13 },
-    6: { min: 10, max: 16 },
-    7: { min: 12, max: 19 },
+    5: { min: 8, max: 16 },
+    6: { min: 10, max: 18 },
+    7: { min: 12, max: 20 },
     8: { min: 14, max: 22 },
     9: { min: 16, max: 26 },
     10: { min: 18, max: 30 },

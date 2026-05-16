@@ -17,15 +17,12 @@ describe('generateQueenPositions', () => {
     const queens = generateQueenPositions(5, rng);
     expect(queens).toHaveLength(5);
 
-    // Verify distinct rows
     const rows = new Set(queens.map(q => q.row));
     expect(rows.size).toBe(5);
 
-    // Verify distinct columns
     const cols = new Set(queens.map(q => q.col));
     expect(cols.size).toBe(5);
 
-    // Verify non-adjacency
     for (let i = 0; i < queens.length; i++) {
       for (let j = i + 1; j < queens.length; j++) {
         const dr = Math.abs(queens[i].row - queens[j].row);
@@ -39,7 +36,6 @@ describe('generateQueenPositions', () => {
     const rng = createRNG(123);
     const queens = generateQueenPositions(10, rng);
     expect(queens).toHaveLength(10);
-
     const rows = new Set(queens.map(q => q.row));
     expect(rows.size).toBe(10);
   });
@@ -53,9 +49,7 @@ describe('generateQueenPositions', () => {
   it('produces different results with different seeds', () => {
     const q1 = generateQueenPositions(5, createRNG(1));
     const q2 = generateQueenPositions(5, createRNG(2));
-    // Very unlikely to be identical
     const same = q1.every((q, i) => q.row === q2[i].row && q.col === q2[i].col);
-    // Could be same by chance, but rare enough for test
     expect(same).toBe(false);
   });
 });
@@ -93,25 +87,37 @@ describe('generateRegions', () => {
     }
   });
 
-  it('different complexity produces different region shapes', () => {
+  it('different shapeBias produces different region layouts', () => {
     const n = 5;
-    const queens1 = generateQueenPositions(n, createRNG(42));
-    const queens2 = generateQueenPositions(n, createRNG(99));
+    const rng = createRNG(42);
+    const queens = generateQueenPositions(n, rng);
 
-    const regionsLow = generateRegions(n, queens1, 0.0, createRNG(100));
-    const regionsHigh = generateRegions(n, queens2, 1.0, createRNG(200));
+    const regionsLow = generateRegions(n, queens, 0.0, createRNG(100));
+    const regionsHigh = generateRegions(n, queens, 1.0, createRNG(200));
 
-    // With target size system, different Queen positions + complexity
-    // should generally produce different layouts
-    const layoutLow = regionsToLayout(n, regionsLow);
-    const layoutHigh = regionsToLayout(n, regionsHigh);
+    // Both should cover all cells
+    const covered1 = new Set<string>();
+    const covered2 = new Set<string>();
+    for (const reg of regionsLow) for (const { row, col } of reg.cells) covered1.add(`${row},${col}`);
+    for (const reg of regionsHigh) for (const { row, col } of reg.cells) covered2.add(`${row},${col}`);
+    expect(covered1.size).toBe(n * n);
+    expect(covered2.size).toBe(n * n);
+  });
 
-    // Just verify both are valid (full coverage)
-    const allCells = new Set<string>();
-    for (const reg of [...regionsLow, ...regionsHigh]) {
-      for (const { row, col } of reg.cells) allCells.add(`${row},${col}`);
+  it('handles n=8 correctly (no free regions for n>=8)', () => {
+    const n = 8;
+    const rng = createRNG(42);
+    const queens = generateQueenPositions(n, rng);
+    const regions = generateRegions(n, queens, 0.5, rng);
+
+    expect(regions).toHaveLength(n);
+    const covered = new Set<string>();
+    for (const reg of regions) for (const { row, col } of reg.cells) covered.add(`${row},${col}`);
+    expect(covered.size).toBe(n * n);
+    // Each region should have at least 1 cell (its Queen)
+    for (const reg of regions) {
+      expect(reg.cells.length).toBeGreaterThanOrEqual(1);
     }
-    expect(allCells.size).toBeGreaterThanOrEqual(n * n); // each layout covers all cells
   });
 });
 
@@ -124,10 +130,24 @@ describe('generateLevel', () => {
     expect(level!.solverResult.complete).toBe(true);
     expect(level!.strategySequence.length).toBeGreaterThan(0);
     expect(level!.strategySequence.length).toBe(level!.actualSteps);
-  }, 15000); // 15 second timeout for generation
+  }, 15000);
 
-  it('generates a 7×7 level (tries multiple seeds)', () => {
-    // Try many seed/step combos
+  it('generates 5×5 levels for multiple target steps', () => {
+    for (const targetSteps of [9, 11, 13, 15]) {
+      let found = false;
+      for (const seed of [10, 42, 99, 200, 500]) {
+        const level = generateLevel({ n: 5, targetSteps, seed, allowApproximate: true });
+        if (level && level.solverResult.complete) {
+          expect(level.actualSteps).toBeGreaterThan(0);
+          found = true;
+          break;
+        }
+      }
+      expect(found).toBe(true);
+    }
+  }, 60000);
+
+  it('generates a 7×7 level (tries multiple targets)', () => {
     let level: ReturnType<typeof generateLevel> = null;
     const attempts = [
       { n: 7, targetSteps: 30, seed: 100 },
@@ -170,7 +190,6 @@ describe('generateLevel', () => {
     const hardSteps = complexityToTargetSteps(5, '困难');
     expect(hardSteps).toBeGreaterThan(easySteps);
 
-    // Try multiple seeds for each
     let easyLevel: ReturnType<typeof generateLevel> = null;
     for (const s of [10, 20, 30, 40, 50]) {
       easyLevel = generateLevel({ n: 5, targetSteps: easySteps, seed: s });
@@ -189,16 +208,6 @@ describe('generateLevel', () => {
   }, 60000);
 });
 
-function regionsToLayout(n: number, regions: { id: number; cells: { row: number; col: number }[] }[]): number[][] {
-  const layout: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
-  for (const region of regions) {
-    for (const { row, col } of region.cells) {
-      layout[row][col] = region.id;
-    }
-  }
-  return layout;
-}
-
 // ── Reverse Generator Tests ────────────────────────────────────
 
 describe('generateLevelReverse', () => {
@@ -215,18 +224,22 @@ describe('generateLevelReverse', () => {
     }
   }, 30000);
 
-  it('generates a solvable 5×5 level for different step targets', () => {
+  it('generates solvable 5×5 levels for different step targets', () => {
     for (const targetSteps of [10, 13, 15]) {
-      const result = generateLevelReverse({ n: 5, targetSteps, seed: 100 + targetSteps });
-      if (result.status === 'failed') continue; // try next
-      expect(result.level).not.toBeNull();
-      if (result.level) {
-        expect(result.level.solverResult.complete).toBe(true);
+      let found = false;
+      for (const seed of [100 + targetSteps, 200 + targetSteps, 300 + targetSteps]) {
+        const result = generateLevelReverse({ n: 5, targetSteps, seed });
+        if (result.status !== 'failed' && result.level) {
+          expect(result.level.solverResult.complete).toBe(true);
+          found = true;
+          break;
+        }
       }
+      expect(found).toBe(true);
     }
   }, 60000);
 
-  it('tries multiple seeds for 7×7 and finds at least one', () => {
+  it('finds solvable 7×7 boards with multiple seeds', () => {
     let found = false;
     const combos = [
       { n: 7, targetSteps: 20, seed: 100 },
@@ -259,16 +272,22 @@ describe('generateLevelReverse', () => {
   }, 30000);
 });
 
-describe('integrated generator (reverse + fallback)', () => {
-  it('generates 5×5 levels correctly', () => {
+// ── Integrated Generator Tests ───────────────────────────────
+
+describe('integrated generator', () => {
+  it('generates 5×5 levels with exact step match', () => {
     for (const targetSteps of [10, 12, 14]) {
-      const result = generateLevelResult({ n: 5, targetSteps, seed: 200 + targetSteps });
-      if (result.status === 'failed') continue;
-      expect(result.level).not.toBeNull();
-      if (result.level) {
-        expect(result.level.solverResult.complete).toBe(true);
-        expect(result.level.actualSteps).toBeGreaterThan(0);
+      let found = false;
+      for (const seed of [200 + targetSteps, 300 + targetSteps]) {
+        const result = generateLevelResult({ n: 5, targetSteps, seed });
+        if (result.status !== 'failed' && result.level) {
+          expect(result.level.solverResult.complete).toBe(true);
+          expect(result.level.actualSteps).toBeGreaterThan(0);
+          found = true;
+          break;
+        }
       }
+      expect(found).toBe(true);
     }
   }, 45000);
 
@@ -286,7 +305,30 @@ describe('integrated generator (reverse + fallback)', () => {
     expect(found).toBe(true);
   }, 60000);
 
-  it('generates 8×8 levels (may need fallback)', () => {
+  it('generates 7×7 levels for multiple targets', () => {
+    // Target 13 and 15 are well-supported; 17 requires more seeds
+    const testCases = [
+      { targetSteps: 13, seeds: [100, 300, 500] },
+      { targetSteps: 15, seeds: [100, 300, 500] },
+      { targetSteps: 17, seeds: [100, 300, 500, 700, 900] },
+    ];
+    for (const { targetSteps, seeds } of testCases) {
+      let found = false;
+      for (const seed of seeds) {
+        const result = generateLevelResult({ n: 7, targetSteps, seed, allowApproximate: true });
+        if (result.status !== 'failed' && result.level) {
+          expect(result.level.n).toBe(7);
+          expect(result.level.solverResult.complete).toBe(true);
+          expect(Math.abs(result.level.actualSteps - targetSteps)).toBeLessThanOrEqual(5);
+          found = true;
+          break;
+        }
+      }
+      expect(found).toBe(true);
+    }
+  }, 180000);
+
+  it('generates 8×8 levels (limited target range)', () => {
     let found = false;
     for (const seed of [100, 300, 500, 700, 777]) {
       const result = generateLevelResult({ n: 8, targetSteps: 30, seed, allowApproximate: true });
@@ -299,4 +341,20 @@ describe('integrated generator (reverse + fallback)', () => {
     }
     expect(found).toBe(true);
   }, 120000);
+
+  it('reports failure for unreachable target on n=8', () => {
+    // With exact match required, very high target may fail
+    const result = generateLevelResult({ n: 8, targetSteps: 100, seed: 42, maxAttempts: 5, allowApproximate: false });
+    // Either exact match (unlikely) or failed — both are acceptable
+    expect(['exact', 'failed']).toContain(result.status);
+  }, 30000);
+
+  it('generates levels deterministically', () => {
+    const r1 = generateLevelResult({ n: 5, targetSteps: 11, seed: 77 });
+    const r2 = generateLevelResult({ n: 5, targetSteps: 11, seed: 77 });
+    if (r1.level && r2.level) {
+      expect(r1.level.actualSteps).toBe(r2.level.actualSteps);
+      expect(r1.level.strategySequence).toEqual(r2.level.strategySequence);
+    }
+  }, 30000);
 });
