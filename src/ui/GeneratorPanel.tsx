@@ -43,6 +43,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
       maxAttempts: clamp(draft.maxAttempts, 1, 100000),
       allowApproximate: draft.allowApproximate,
       useKeyedRegions: draft.useKeyedRegions,
+      anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
     });
   };
 
@@ -88,6 +89,22 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 value={draft.targetSteps}
                 onChange={event => updateDraft({ targetSteps: clamp(Number(event.target.value), 1, 80) })}
               />
+            </label>
+
+            <label className="generator-field">
+              <span>锚点区域数</span>
+              <select
+                value={draft.anchorCount ?? ''}
+                onChange={event => {
+                  const raw = event.target.value;
+                  updateDraft({ anchorCount: raw === '' ? null : clamp(Number(raw), 1, 4) });
+                }}
+              >
+                <option value="">自动</option>
+                {[1, 2, 3, 4].map(x => (
+                  <option key={x} value={x}>{x} 个锚点</option>
+                ))}
+              </select>
             </label>
 
             <label className="generator-field">
@@ -225,6 +242,18 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 <span>钥匙区域</span>
                 <strong>{lastResult.diagnostics.useKeyedRegions ? '开启' : '关闭'}</strong>
               </div>
+              {lastResult.diagnostics.anchorStrategy && (
+                <div>
+                  <span>锚点策略</span>
+                  <strong>{lastResult.diagnostics.anchorStrategy}</strong>
+                </div>
+              )}
+              {lastResult.diagnostics.anchorQueenIndices && lastResult.diagnostics.anchorQueenIndices.length > 0 && (
+                <div>
+                  <span>锚点 Queen</span>
+                  <strong>[{lastResult.diagnostics.anchorQueenIndices.join(', ')}]</strong>
+                </div>
+              )}
             </div>
           )}
 

@@ -24,6 +24,7 @@ export type GeneratorDraft = {
   maxAttempts: number;
   allowApproximate: boolean;
   useKeyedRegions: boolean;
+  anchorCount: number | null;
 };
 
 interface GameState {
@@ -94,6 +95,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     maxAttempts: 2500,
     allowApproximate: false,
     useKeyedRegions: false,
+    anchorCount: null,
   },
   lastGeneratedLevel: null,
   lastGenerationResult: null,
@@ -273,6 +275,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const maxAttempts = params.maxAttempts ?? get().generatorDraft.maxAttempts;
     const allowApproximate = params.allowApproximate ?? get().generatorDraft.allowApproximate;
     const useKeyedRegions = params.useKeyedRegions ?? get().generatorDraft.useKeyedRegions;
+    const anchorCount = params.anchorCount ?? get().generatorDraft.anchorCount ?? undefined;
     set({
       isGenerating: true,
       generationError: null,
@@ -283,6 +286,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         maxAttempts,
         allowApproximate,
         useKeyedRegions,
+        anchorCount: params.anchorCount ?? null,
       },
     });
 
@@ -296,6 +300,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             maxAttempts,
             allowApproximate,
             useKeyedRegions,
+            anchorCount,
           }));
         }, 50);
       });
