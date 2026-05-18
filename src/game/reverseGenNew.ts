@@ -1,13 +1,17 @@
 /**
  * Reverse Generator V2 — builds puzzles backward through the strategy chain.
  *
- * Each reverse step places a minimal set of grid cells that guarantee a
- * specific solver strategy will fire. Placed cells are frozen (position
- * locked), but the region can still grow during the fill phase — the
- * extra growth creates "spoilers" that earlier strategies must eliminate
- * before the later strategy's geometric constraint becomes visible.
+ * Each reverse step places minimal grid cells ensuring a specific solver strategy
+ * fires. Only placed cells are frozen; regions continue to grow during fill.
+ * Extra growth creates "spoilers" — cells that obscure the strategy constraint.
  *
- * Pipeline: Queens → strategy sequence → constraint build → fill → verify
+ * Key mechanism — strategic spoiler placement:
+ * Between adjacent reverse steps, the EARLIER strategy's elimination zone is
+ * used to place spoiler cells for the LATER strategy's regions. In forward
+ * solve order, the earlier strategy fires first, X-ing out those spoilers
+ * and revealing the later strategy's constraint.
+ *
+ * Pipeline: Queens → strategy sequence → constraint build + spoilers → fill → verify
  */
 
 import {
@@ -20,7 +24,7 @@ import {
   GenerationStatus,
   StrategyType,
 } from './types';
-import { createEmptyBoard, getQueenPositions } from './rules';
+import { createEmptyBoard } from './rules';
 import { solve } from './solver';
 import { assembleLevel, generateQueenPositions } from './generatorCore';
 import { createRNG, shuffle, randInt } from './random';
@@ -35,11 +39,6 @@ function inBounds(r: number, c: number, n: number): boolean {
   return r >= 0 && r < n && c >= 0 && c < n;
 }
 
-// ── Constraint builders ───────────────────────────────────────────
-// Each builder places a minimal set of cells that satisfies a
-// strategy's geometric constraint. Cells are placed into the grid
-// and marked frozen. The region can grow beyond these cells later.
-
 function canPlace(key: string, frozen: Set<string>, grid: number[][], rid: number): boolean {
   if (frozen.has(key)) return false;
   const [r, c] = key.split(',').map(Number);
@@ -51,18 +50,27 @@ function claimCell(r: number, c: number, rid: number, grid: number[][], frozen: 
   frozen.add(posKey({ row: r, col: c }));
 }
 
-/** L2_Lock1: all cells of a region lie on the same row or column */
+// ── BuildInfo — constraint metadata for spoiler placement ─────────
+
+type BuildInfo = {
+  strategy: StrategyType;
+  queenIndices: number[];
+  axis: 'row' | 'col';
+  values: number[];  // constrained rows or cols
+};
+
+// ── Constraint builders ───────────────────────────────────────────
+
 function buildLock1(
   n: number, qi: number, queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q = queens[qi];
   const axis: 'row' | 'col' = rng() < 0.5 ? 'row' : 'col';
 
   const cells: Position[] = [{ ...q }];
   const taken = new Set<string>([posKey(q)]);
 
-  // Collect free cells along axis
   const axisCells: Position[] = [];
   for (let i = 0; i < n; i++) {
     const p = axis === 'row' ? { row: q.row, col: i } : { row: i, col: q.col };
@@ -71,10 +79,10 @@ function buildLock1(
   }
 
   const maxSz = Math.min(axisCells.length, n - 1);
-  const sz = Math.max(2, Math.min(maxSz, 2 + Math.floor(rng() * 2)));
+  const sz = Math.max(2, Math.min(maxSz, 3 + Math.floor(rng() * 3))); // 3-5 cells
 
   const qiAxis = axisCells.findIndex(p => p.row === q.row && p.col === q.col);
-  if (qiAxis === -1) return false; // Queen not on axis (shouldn't happen)
+  if (qiAxis === -1) return null;
 
   let left = qiAxis, right = qiAxis;
   while (taken.size < sz) {
@@ -82,27 +90,24 @@ function buildLock1(
     if (goLeft) {
       left--;
       const k = posKey(axisCells[left]);
-      if (!taken.has(k) && canPlace(k, frozen, grid, qi)) {
-        taken.add(k); cells.push(axisCells[left]);
-      }
+      if (!taken.has(k) && canPlace(k, frozen, grid, qi)) { taken.add(k); cells.push(axisCells[left]); }
     } else if (right < axisCells.length - 1) {
       right++;
       const k = posKey(axisCells[right]);
-      if (!taken.has(k) && canPlace(k, frozen, grid, qi)) {
-        taken.add(k); cells.push(axisCells[right]);
-      }
+      if (!taken.has(k) && canPlace(k, frozen, grid, qi)) { taken.add(k); cells.push(axisCells[right]); }
     } else break;
   }
 
   for (const { row, col } of cells) claimCell(row, col, qi, grid, frozen);
-  return cells.length >= 2;
+  return cells.length >= 2
+    ? { strategy: 'L2_Lock1', queenIndices: [qi], axis, values: [axis === 'row' ? q.row : q.col] }
+    : null;
 }
 
-/** L2_Lock2: two regions' cells lie within the same two rows or columns */
 function buildLock2(
   n: number, qi0: number, qi1: number, queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q0 = queens[qi0], q1 = queens[qi1];
   const dim: 'row' | 'col' = rng() < 0.5 ? 'row' : 'col';
   const allowed = new Set([dim === 'row' ? q0.row : q0.col, dim === 'row' ? q1.row : q1.col]);
@@ -118,8 +123,7 @@ function buildLock2(
         const nk = posKey({ row: nr, col: nc });
         const v = dim === 'row' ? nr : nc;
         if (inBounds(nr, nc, n) && allowed.has(v) && !seen.has(nk) && canPlace(nk, frozen, grid, rid)) {
-          seen.add(nk);
-          frontier.push({ row: nr, col: nc });
+          seen.add(nk); frontier.push({ row: nr, col: nc });
         }
       }
     }
@@ -127,32 +131,29 @@ function buildLock2(
     addFrontier(seed);
     while (cells.length < targetSz && frontier.length > 0) {
       const idx = Math.floor(rng() * frontier.length);
-      const p = frontier[idx];
-      frontier.splice(idx, 1);
-      const k = posKey(p);
-      if (canPlace(k, frozen, grid, rid)) {
-        cells.push(p);
-        addFrontier(p);
-      }
+      const p = frontier[idx]; frontier.splice(idx, 1);
+      if (canPlace(posKey(p), frozen, grid, rid)) { cells.push(p); addFrontier(p); }
     }
     return cells;
   }
 
-  const sz0 = 2 + Math.floor(rng() * 3);
-  const sz1 = 2 + Math.floor(rng() * 3);
+  const sz0 = 3 + Math.floor(rng() * 3); // 3-5 cells
+  const sz1 = 3 + Math.floor(rng() * 3);
   const r0cells = grow(q0, qi0, sz0);
   const r1cells = grow(q1, qi1, sz1);
 
   for (const c of r0cells) claimCell(c.row, c.col, qi0, grid, frozen);
   for (const c of r1cells) claimCell(c.row, c.col, qi1, grid, frozen);
-  return r0cells.length >= 2 && r1cells.length >= 2;
+
+  return r0cells.length >= 2 && r1cells.length >= 2
+    ? { strategy: 'L2_Lock2', queenIndices: [qi0, qi1], axis: dim, values: [...allowed] }
+    : null;
 }
 
-/** L2_Lock3: three regions' cells lie within the same three rows or columns */
 function buildLock3(
   n: number, qis: number[], queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const dim: 'row' | 'col' = rng() < 0.5 ? 'row' : 'col';
   const allowed = new Set(qis.map(i => dim === 'row' ? queens[i].row : queens[i].col));
 
@@ -167,8 +168,7 @@ function buildLock3(
         const nk = posKey({ row: nr, col: nc });
         const v = dim === 'row' ? nr : nc;
         if (inBounds(nr, nc, n) && allowed.has(v) && !seen.has(nk) && canPlace(nk, frozen, grid, rid)) {
-          seen.add(nk);
-          frontier.push({ row: nr, col: nc });
+          seen.add(nk); frontier.push({ row: nr, col: nc });
         }
       }
     }
@@ -176,12 +176,8 @@ function buildLock3(
     addFrontier(seed);
     while (cells.length < targetSz && frontier.length > 0) {
       const idx = Math.floor(rng() * frontier.length);
-      const p = frontier[idx];
-      frontier.splice(idx, 1);
-      if (canPlace(posKey(p), frozen, grid, rid)) {
-        cells.push(p);
-        addFrontier(p);
-      }
+      const p = frontier[idx]; frontier.splice(idx, 1);
+      if (canPlace(posKey(p), frozen, grid, rid)) { cells.push(p); addFrontier(p); }
     }
     return cells;
   }
@@ -192,35 +188,32 @@ function buildLock3(
     for (const c of cells) claimCell(c.row, c.col, qi, grid, frozen);
     if (cells.length < 2) ok = false;
   }
-  return ok && qis.length === 3;
+  return ok && qis.length === 3
+    ? { strategy: 'L2_Lock3', queenIndices: qis, axis: dim, values: [...allowed] }
+    : null;
 }
 
-/** L3_Projection: 2-3 cells of the same region lie on the same row/col, adjacent */
 function buildProjection(
   n: number, qi: number, queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q = queens[qi];
   const axis: 'row' | 'col' = rng() < 0.5 ? 'row' : 'col';
 
-  // Collect same-axis cells at distance 1 (guarantees 4-connectivity)
   const cands: Position[] = [];
   for (const sign of [-1, 1]) {
     const p = axis === 'row'
       ? { row: q.row, col: q.col + sign }
       : { row: q.row + sign, col: q.col };
-    if (inBounds(p.row, p.col, n) && canPlace(posKey(p), frozen, grid, qi)) {
-      cands.push(p);
-    }
+    if (inBounds(p.row, p.col, n) && canPlace(posKey(p), frozen, grid, qi)) cands.push(p);
   }
 
-  // Fisher-Yates shuffle
   for (let i = cands.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [cands[i], cands[j]] = [cands[j], cands[i]];
   }
 
-  const targetSz = 2 + Math.floor(rng() * 2); // 2-3 total (including Queen)
+  const targetSz = 2 + Math.floor(rng() * 2);
   claimCell(q.row, q.col, qi, grid, frozen);
   let placed = 1;
   for (const p of cands) {
@@ -228,100 +221,77 @@ function buildProjection(
     claimCell(p.row, p.col, qi, grid, frozen);
     placed++;
   }
-  return placed >= 2;
+  return placed >= 2
+    ? { strategy: 'L3_Projection', queenIndices: [qi], axis, values: [axis === 'row' ? q.row : q.col] }
+    : null;
 }
 
-/** L3_Capacity: 2-3 cells of a region are within a single 2x2 block */
 function buildCapacity(
   n: number, qi: number, queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q = queens[qi];
   const taken = new Set<string>([posKey(q)]);
 
-  // Find 2x2 blocks containing the Queen
   const blocks: Position[][] = [];
   for (const dr of [0, -1]) {
     for (const dc of [0, -1]) {
       const r = q.row + dr, c = q.col + dc;
       if (!inBounds(r, c, n) || !inBounds(r + 1, c + 1, n)) continue;
       const free: Position[] = [];
-      for (const br of [r, r + 1]) {
-        for (const bc of [c, c + 1]) {
-          const k = posKey({ row: br, col: bc });
-          if (!taken.has(k) && canPlace(k, frozen, grid, qi)) free.push({ row: br, col: bc });
-        }
+      for (const br of [r, r + 1]) for (const bc of [c, c + 1]) {
+        const k = posKey({ row: br, col: bc });
+        if (!taken.has(k) && canPlace(k, frozen, grid, qi)) free.push({ row: br, col: bc });
       }
       if (free.length >= 1) blocks.push(free);
     }
   }
-
-  if (blocks.length === 0) return false;
+  if (blocks.length === 0) return null;
 
   const block = blocks[Math.floor(rng() * blocks.length)];
-  for (let i = block.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [block[i], block[j]] = [block[j], block[i]];
-  }
+  for (let i = block.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [block[i], block[j]] = [block[j], block[i]]; }
 
   claimCell(q.row, q.col, qi, grid, frozen);
   let placed = 1;
-  for (const p of block) {
-    if (placed >= 3) break;
-    claimCell(p.row, p.col, qi, grid, frozen);
-    placed++;
-  }
-  return placed >= 2;
+  for (const p of block) { if (placed >= 3) break; claimCell(p.row, p.col, qi, grid, frozen); placed++; }
+
+  // Capacity elim zone = the 2x2 block — store block corner
+  const blockCorner = `${q.row}-${q.col}`;
+  return placed >= 2
+    ? { strategy: 'L3_Capacity', queenIndices: [qi], axis: 'row', values: [q.row, q.col] }
+    : null;
 }
 
-/**
- * L3_Contradiction: place a candidate C such that if C were Queen,
- * it would starve a specific row, column, or region of all candidates.
- * This is probabilistic — we position C to threaten a narrow unit.
- */
 function buildContradiction(
   n: number, qi: number, queens: Position[],
   grid: number[][], frozen: Set<string>, rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q = queens[qi];
-
-  // Place the "threatening" candidate near the Queen but in a narrow unit
   const dir = DIRS_4[Math.floor(rng() * 4)];
   const p = { row: q.row + dir.dr, col: q.col + dir.dc };
-  if (!inBounds(p.row, p.col, n)) return false;
-  const k = posKey(p);
-  if (!canPlace(k, frozen, grid, qi)) return false;
+  if (!inBounds(p.row, p.col, n)) return null;
+  if (!canPlace(posKey(p), frozen, grid, qi)) return null;
 
   claimCell(q.row, q.col, qi, grid, frozen);
   claimCell(p.row, p.col, qi, grid, frozen);
-  return true;
+  return { strategy: 'L3_Contradiction', queenIndices: [qi], axis: 'row', values: [p.row, p.col] };
 }
 
-/**
- * L1_Unique: place only the Queen cell for a region. After fill adds
- * extra cells and earlier strategies X them out, the Queen becomes the
- * sole candidate → L1_Unique fires.
- */
 function buildUnique(
   n: number, qi: number, queens: Position[],
   grid: number[][], frozen: Set<string>, _rng: () => number,
-): boolean {
+): BuildInfo | null {
   const q = queens[qi];
   claimCell(q.row, q.col, qi, grid, frozen);
-  return true;
+  return { strategy: 'L1_Unique', queenIndices: [qi], axis: 'row', values: [q.row, q.col] };
 }
 
 // ── Builder dispatch ─────────────────────────────────────────────
 
 function buildConstraint(
-  strategy: StrategyType,
-  queenIndices: number[],
-  queens: Position[],
-  grid: number[][],
-  frozen: Set<string>,
-  n: number,
-  rng: () => number,
-): boolean {
+  strategy: StrategyType, queenIndices: number[], queens: Position[],
+  grid: number[][], frozen: Set<string>, n: number, rng: () => number,
+): BuildInfo | null {
   switch (strategy) {
     case 'L2_Lock1': return buildLock1(n, queenIndices[0], queens, grid, frozen, rng);
     case 'L2_Lock2': return buildLock2(n, queenIndices[0], queenIndices[1], queens, grid, frozen, rng);
@@ -330,22 +300,118 @@ function buildConstraint(
     case 'L3_Contradiction': return buildContradiction(n, queenIndices[0], queens, grid, frozen, rng);
     case 'L3_Capacity': return buildCapacity(n, queenIndices[0], queens, grid, frozen, rng);
     case 'L1_Unique': return buildUnique(n, queenIndices[0], queens, grid, frozen, rng);
-    case 'L1_Direct': return false; // natural consequence, not built
+    default: return null;
+  }
+}
+
+// ── Elimination zone computation ──────────────────────────────────
+
+function getEliminationZone(info: BuildInfo, n: number): Set<string> {
+  const zone = new Set<string>();
+
+  switch (info.strategy) {
+    case 'L2_Lock1':
+    case 'L3_Projection': {
+      const v = info.values[0];
+      for (let i = 0; i < n; i++) {
+        if (info.axis === 'row') zone.add(`${v},${i}`);
+        else zone.add(`${i},${v}`);
+      }
+      break;
+    }
+    case 'L2_Lock2':
+    case 'L2_Lock3': {
+      for (const v of info.values) {
+        for (let i = 0; i < n; i++) {
+          if (info.axis === 'row') zone.add(`${v},${i}`);
+          else zone.add(`${i},${v}`);
+        }
+      }
+      break;
+    }
+    case 'L3_Capacity': {
+      // 2×2 block around the Queen
+      const r = info.values[0], c = info.values[1];
+      for (const dr of [0, -1]) for (const dc of [0, -1]) {
+        const br = r + dr, bc = c + dc;
+        if (inBounds(br, bc, n) && inBounds(br + 1, bc + 1, n)) {
+          zone.add(`${br},${bc}`); zone.add(`${br},${bc + 1}`);
+          zone.add(`${br + 1},${bc}`); zone.add(`${br + 1},${bc + 1}`);
+        }
+      }
+      break;
+    }
+    case 'L3_Contradiction': {
+      // Around the eliminated cell
+      const r = info.values[0], c = info.values[1];
+      zone.add(`${r},${c}`);
+      for (const { dr, dc } of DIRS_4) {
+        if (inBounds(r + dr, c + dc, n)) zone.add(`${r + dr},${c + dc}`);
+      }
+      break;
+    }
+    case 'L1_Unique': {
+      const r = info.values[0], c = info.values[1];
+      // Queen's row + col + adjacent (what L1_Direct will X after Unique confirms)
+      for (let i = 0; i < n; i++) { zone.add(`${r},${i}`); zone.add(`${i},${c}`); }
+      for (const dr of [-1, 0, 1]) for (const dc of [-1, 0, 1]) {
+        if (dr === 0 && dc === 0) continue;
+        if (inBounds(r + dr, c + dc, n)) zone.add(`${r + dr},${c + dc}`);
+      }
+      break;
+    }
+  }
+
+  return zone;
+}
+
+// ── Spoiler placement ─────────────────────────────────────────────
+
+function addSpoilers(
+  earlier: BuildInfo,  // fires EARLIER in forward solve → its elim zone
+  later: BuildInfo,    // fires LATER → its regions need spoilers
+  grid: number[][], frozen: Set<string>, n: number, rng: () => number,
+): void {
+  const zone = getEliminationZone(earlier, n);
+  const targetRegions = later.queenIndices;
+  if (targetRegions.length === 0) return;
+
+  // Collect unassigned cells in the elimination zone
+  const candidates: Position[] = [];
+  for (const key of zone) {
+    if (frozen.has(key)) continue;
+    const [r, c] = key.split(',').map(Number);
+    if (r >= 0 && r < n && c >= 0 && c < n && grid[r][c] === -1) {
+      candidates.push({ row: r, col: c });
+    }
+  }
+  if (candidates.length === 0) return;
+
+  // Shuffle and take up to 2 spoilers per target region
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  let placed = 0;
+  const maxSpoilers = 2 * targetRegions.length;
+  for (const { row, col } of candidates) {
+    if (placed >= maxSpoilers) break;
+    const rid = targetRegions[placed % targetRegions.length];
+    claimCell(row, col, rid, grid, frozen);
+    placed++;
   }
 }
 
 // ── Strategy sequence ────────────────────────────────────────────
 
 function pickReverseStrategies(
-  n: number,
-  targetSteps: number,
-  rng: () => number,
+  n: number, targetSteps: number, rng: () => number,
 ): { strategy: StrategyType; queenIndices: number[] }[] {
   const sequence: { strategy: StrategyType; queenIndices: number[] }[] = [];
   const usageCount = new Array(n).fill(0);
 
-  // Constraint-building steps ≈ 50-60% of target (L1_Direct/Unique fill the rest naturally)
-  const steps = Math.max(3, Math.min(n * 2 + 2, Math.floor(targetSteps * 0.58)));
+  const steps = Math.max(3, Math.min(n * 2 + 2, Math.floor(targetSteps * 0.55)));
 
   for (let step = 0; step < steps; step++) {
     const roll = rng();
@@ -360,12 +426,10 @@ function pickReverseStrategies(
     else if (roll < 0.94)           { strategy = 'L3_Contradiction'; needed = 1; }
     else                            { strategy = 'L1_Unique'; needed = 1; }
 
-    // Pick Queens with lowest usage first
     const ranked = Array.from({ length: n }, (_, i) => i)
       .sort((a, b) => usageCount[a] - usageCount[b]);
     const shuffled = shuffle(ranked.slice(0, Math.max(needed * 3, n)), rng);
     const chosen = shuffled.slice(0, needed);
-
     if (chosen.length < needed) continue;
 
     sequence.push({ strategy, queenIndices: chosen });
@@ -391,15 +455,9 @@ function gridToRegions(grid: number[][], n: number): Region[] {
   return Array.from(map.entries()).map(([id, cells]) => ({ id, cells }));
 }
 
-function fillGrid(
-  grid: number[][],
-  queens: Position[],
-  n: number,
-  rng: () => number,
-): void {
+function fillGrid(grid: number[][], n: number, rng: () => number): void {
   const frontier: { row: number; col: number; rid: number }[] = [];
 
-  // Seed frontier from assigned cells
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (grid[r][c] === -1) continue;
@@ -413,15 +471,12 @@ function fillGrid(
     }
   }
 
-  // Random BFS fill
   while (frontier.length > 0) {
     const idx = randInt(rng, 0, frontier.length - 1);
     const { row, col, rid } = frontier[idx];
     frontier.splice(idx, 1);
-
     if (grid[row][col] !== -1) continue;
     grid[row][col] = rid;
-
     for (const { dr, dc } of DIRS_4) {
       const nr = row + dr, nc = col + dc;
       if (inBounds(nr, nc, n) && grid[nr][nc] === -1) {
@@ -430,7 +485,7 @@ function fillGrid(
     }
   }
 
-  // Any remaining unassigned cells → nearest region
+  // Fallback: unassigned cells → nearest region
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (grid[r][c] !== -1) continue;
@@ -465,23 +520,17 @@ export function generateReverseLevel(params: GeneratorParams): GenerationResult 
   let exactCandidates = 0;
 
   const makeDiagnostics = (status: GenerationStatus): GenerationDiagnostics => ({
-    status,
-    attempts,
-    maxAttempts,
+    status, attempts, maxAttempts,
     elapsedMs: Date.now() - startedAt,
-    seed: actualSeed,
-    targetSteps,
+    seed: actualSeed, targetSteps,
     bestActualSteps: bestLevel?.actualSteps ?? null,
     bestDiff: bestLevel ? bestLevel.actualSteps - targetSteps : null,
     selectedAttempt: bestLevel ? bestAttempt : null,
     selectedAttemptSeed: bestLevel ? actualSeed + (bestAttempt - 1) * 7919 + targetSteps * 101 : null,
     completeCandidates,
     incompleteCandidates: attempts - completeCandidates,
-    exactCandidates,
-    allowApproximate,
-    anchorStrategy: 'reverseV2',
-    anchorQueenIndices: null,
-    anchorCount: null,
+    exactCandidates, allowApproximate,
+    anchorStrategy: 'reverseV2', anchorQueenIndices: null, anchorCount: null,
   });
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -493,7 +542,7 @@ export function generateReverseLevel(params: GeneratorParams): GenerationResult 
     try { queens = generateQueenPositions(n, baseRng); }
     catch { continue; }
 
-    // 2. Init grid — Queens claim their cells
+    // 2. Init grid
     const grid: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
     const frozen = new Set<string>();
     for (let i = 0; i < queens.length; i++) {
@@ -504,27 +553,38 @@ export function generateReverseLevel(params: GeneratorParams): GenerationResult 
     // 3. Strategy sequence
     const seqRng = createRNG(actualSeed + attempt * 7919 + targetSteps * 101 + 777);
     const sequence = pickReverseStrategies(n, targetSteps, seqRng);
+    if (sequence.length === 0) continue;
 
-    // 4. Build constraints in reverse order
+    // 4. Build constraints in reverse order, collecting BuildInfo
+    const buildResults: BuildInfo[] = [];
     for (const { strategy, queenIndices } of sequence) {
-      buildConstraint(strategy, queenIndices, queens, grid, frozen, n, baseRng);
+      const info = buildConstraint(strategy, queenIndices, queens, grid, frozen, n, baseRng);
+      if (info) buildResults.push(info);
+    }
+    if (buildResults.length < 2) continue; // need at least 2 steps for spoiler chain
+
+    // 5. Strategic spoiler placement between adjacent pairs
+    // buildResults[0] = LAST to fire (built first)
+    // buildResults[k] = fires earlier than buildResults[k-1]
+    // So later[k-1] needs spoilers placed in earlier[k]'s elimination zone
+    for (let i = 1; i < buildResults.length; i++) {
+      const earlier = buildResults[i];    // fires EARLIER in forward order
+      const later = buildResults[i - 1];  // fires LATER, needs spoilers
+      addSpoilers(earlier, later, grid, frozen, n, baseRng);
     }
 
-    // 5. Fill remaining
+    // 6. Fill remaining
     const fillRng = createRNG(actualSeed + attempt * 7919 + targetSteps * 101 + 999);
-    fillGrid(grid, queens, n, fillRng);
+    fillGrid(grid, n, fillRng);
 
-    // 6. Build regions, solve
+    // 7. Build regions, solve
     const regions = gridToRegions(grid, n);
-    const board = createEmptyBoard(n, regions);
-    const result = solve(board);
+    const result = solve(createEmptyBoard(n, regions));
     if (!result.complete) continue;
     completeCandidates++;
 
-    const solvedBoard = createEmptyBoard(n, regions);
-    const finalResult = solve(solvedBoard);
     const level = assembleLevel(n, regions, actualSeed, targetSteps,
-      `L${n}x${n}-${actualSeed}-rv2-${attempt}`, finalResult);
+      `L${n}x${n}-${actualSeed}-rv2-${attempt}`, result);
 
     const diff = Math.abs(level.actualSteps - targetSteps);
     if (diff === 0) {
