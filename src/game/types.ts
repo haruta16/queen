@@ -67,7 +67,6 @@ export type GeneratorParams = {
   seed?: number;
   maxAttempts?: number;
   allowApproximate?: boolean;
-  useKeyedRegions?: boolean;
   /** Number of anchor Queens (1-4). When set, overrides random selection. */
   anchorCount?: number;
 };
@@ -91,7 +90,6 @@ export type GenerationDiagnostics = {
   incompleteCandidates: number;
   exactCandidates: number;
   allowApproximate: boolean;
-  useKeyedRegions: boolean;
   /** Anchor strategy used in the best/returned level */
   anchorStrategy: string | null;
   /** Indices of Queens used as anchors */

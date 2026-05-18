@@ -42,7 +42,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
       seed: draft.seed == null ? undefined : clamp(draft.seed, 1, 999_999_999),
       maxAttempts: clamp(draft.maxAttempts, 1, 100000),
       allowApproximate: draft.allowApproximate,
-      useKeyedRegions: draft.useKeyedRegions,
       anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
     });
   };
@@ -149,17 +148,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               </span>
             </label>
 
-            <label className="check-line">
-              <input
-                type="checkbox"
-                checked={draft.useKeyedRegions}
-                onChange={event => updateDraft({ useKeyedRegions: event.target.checked })}
-              />
-              <span>
-                启用开局钥匙区域
-                <small>开启后允许生成器制造 2 格小区域来提高前期可解率；关闭时只使用普通区域生长。</small>
-              </span>
-            </label>
           </div>
 
           <div className="generator-actions">
@@ -237,10 +225,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               <div>
                 <span>派生种子</span>
                 <strong>{lastResult.diagnostics.selectedAttemptSeed ?? '-'}</strong>
-              </div>
-              <div>
-                <span>钥匙区域</span>
-                <strong>{lastResult.diagnostics.useKeyedRegions ? '开启' : '关闭'}</strong>
               </div>
               {lastResult.diagnostics.anchorStrategy && (
                 <div>

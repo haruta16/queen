@@ -1,143 +1,106 @@
 /**
- * Reverse Generator — constructs a solvable puzzle by searching over
- * Queen layouts, using binary search on shapeBias and region refinement
+ * Reverse Generator — constructs solvable puzzles by searching over
+ * Queen layouts, using anchor constraints + binary search on shapeBias
  * to approach the target step count.
+ *
+ * Pipeline: Queen layout → anchor specs → anchor regions → fill → solve → refine
  */
 
 import {
   Position,
-  Region,
   Level,
   GeneratorParams,
   GenerationDiagnostics,
   GenerationResult,
   GenerationStatus,
 } from './types';
-import { createEmptyBoard, getQueenPositions } from './rules';
-import { solve, applyBatchesUpTo } from './solver';
-import { createRNG, shuffle, randInt } from './random';
-import { generateQueenPositions, generateRegions } from './generator';
-import { buildAnchorRegions, pickAnchorSpecs, AnchorSpec } from './anchorGenerator';
+import { createEmptyBoard } from './rules';
+import { solve } from './solver';
+import { createRNG } from './random';
+import { generateQueenPositions, generateRegions, assembleLevel } from './generatorCore';
+import { buildAnchorRegions, pickAnchorSpecs } from './anchorGenerator';
+import { tryMutateRegions } from './regionUtils';
 
-const DIRS_4 = [
-  { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
-  { dr: 0, dc: -1 }, { dr: 0, dc: 1 },
-];
+// ── Seed derivation ──────────────────────────────────────────────
+// Distinct prime multipliers prevent RNG sequence collisions across
+// orthogonal search dimensions:
+//   7919 → Queen layout index    7777 → anchor spec index
+//   137  → shapeBias iteration   101  → targetSteps isolation
+// The large powers-of-10 multipliers separate dimension subspaces.
 
-function posKey(p: Position): string { return `${p.row},${p.col}`; }
-function inBounds(r: number, c: number, n: number): boolean {
-  return r >= 0 && r < n && c >= 0 && c < n;
-}
-function isConnected(cells: Position[]): boolean {
-  if (cells.length <= 1) return true;
-  const cellKeys = new Set(cells.map(posKey));
-  const queue = [cells[0]];
-  const seen = new Set<string>([posKey(cells[0])]);
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    for (const { dr, dc } of DIRS_4) {
-      const key = posKey({ row: cur.row + dr, col: cur.col + dc });
-      if (cellKeys.has(key) && !seen.has(key)) {
-        seen.add(key);
-        queue.push({ row: cur.row + dr, col: cur.col + dc });
-      }
-    }
-  }
-  return seen.size === cells.length;
-}
-function cloneRegions(regions: Region[]): Region[] {
-  return regions.map(r => ({ id: r.id, cells: r.cells.map(p => ({ ...p })) }));
+function layoutSeed(base: number, layoutIdx: number, targetSteps: number): number {
+  return base + layoutIdx * 7919 + targetSteps * 101;
 }
 
-function tryMutateRegions(
-  n: number,
-  regions: Region[],
-  queenPositions: Position[],
-  rng: () => number,
-): Region[] | null {
-  const queenKeys = new Set(queenPositions.map(posKey));
-  const grid: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
-  for (const r of regions) for (const c of r.cells) grid[c.row][c.col] = r.id;
-
-  const movable: { from: number; to: number; pos: Position }[] = [];
-  for (const region of regions) {
-    if (region.cells.length <= 2) continue;
-    for (const pos of region.cells) {
-      if (queenKeys.has(posKey(pos))) continue;
-      const adj = new Set<number>();
-      for (const { dr, dc } of DIRS_4) {
-        const nr = pos.row + dr, nc = pos.col + dc;
-        if (inBounds(nr, nc, n)) {
-          const rid = grid[nr][nc];
-          if (rid !== -1 && rid !== region.id) adj.add(rid);
-        }
-      }
-      for (const to of adj) movable.push({ from: region.id, to, pos });
-    }
-  }
-
-  if (movable.length === 0) return null;
-  const move = movable[randInt(rng, 0, movable.length - 1)];
-  const next = cloneRegions(regions);
-  const fromCells = next[move.from].cells.filter(
-    p => p.row !== move.pos.row || p.col !== move.pos.col,
-  );
-  if (!isConnected(fromCells)) return null;
-  next[move.from].cells = fromCells;
-  next[move.to].cells = [...next[move.to].cells, { ...move.pos }];
-  return next;
+function anchorSeed(layoutBase: number, ai: number): number {
+  return layoutBase * 10000 + ai * 7777 + 1;
 }
 
-function refineLevel(
+function fillSeed(layoutBase: number, ai: number, sub: number): number {
+  return layoutBase * 100000 + ai * 7777 + sub * 137 + 1;
+}
+
+function refineSeed(layoutBase: number, ai: number, sub: number): number {
+  return layoutBase * 1000000 + ai * 7777 + sub * 137 + 1;
+}
+
+// ── Local search ─────────────────────────────────────────────────
+
+/**
+ * Refine region boundaries via random cell migration to tune step count.
+ * Accepts improvements greedily; 8% chance of sideways moves to escape
+ * local optima. Frozen regions (anchors) are never mutated.
+ */
+export function refineLevel(
   level: Level,
   queenPositions: Position[],
   targetSteps: number,
   rng: () => number,
   budget: number,
+  frozenRegionIds?: Set<number>,
 ): Level {
-  let current = level, best = level;
+  let current = level;
+  let best = level;
   for (let i = 0; i < budget; i++) {
-    const mutated = tryMutateRegions(level.n, current.regions, queenPositions, rng);
+    const mutated = tryMutateRegions(level.n, current.regions, queenPositions, rng, frozenRegionIds);
     if (!mutated) continue;
     const board = createEmptyBoard(level.n, mutated);
     const result = solve(board);
     if (!result.complete) continue;
-    const solvedBoard = applyBatchesUpTo(board, result.batches, result.totalSteps);
-    const candidate: Level = {
-      id: `${level.id}-r${i}`, n: level.n, regions: mutated,
-      solution: getQueenPositions(solvedBoard), seed: level.seed, targetSteps,
-      actualSteps: result.totalSteps,
-      strategySequence: result.batches.map(b => b.strategy),
-      solverResult: result,
-    };
+    const candidate = assembleLevel(level.n, mutated, level.seed, targetSteps, `${level.id}-r${i}`, result);
     const cDiff = Math.abs(candidate.actualSteps - targetSteps);
     const bDiff = Math.abs(best.actualSteps - targetSteps);
     if (cDiff < bDiff || (targetSteps > best.actualSteps && candidate.actualSteps > best.actualSteps)) {
-      best = candidate; current = candidate;
+      best = candidate;
+      current = candidate;
       if (cDiff === 0) return candidate;
       continue;
     }
-    if (cDiff <= Math.abs(current.actualSteps - targetSteps) || rng() < 0.08) current = candidate;
+    if (cDiff <= Math.abs(current.actualSteps - targetSteps) || rng() < 0.08) {
+      current = candidate;
+    }
   }
   return best;
 }
+
+// ── Main pipeline ────────────────────────────────────────────────
 
 export function generateLevelReverse(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed, anchorCount: requestedAnchorCount } = params;
   const actualSeed = seed ?? Date.now();
   const startedAt = Date.now();
-  const isLargeN = n >= 8;
 
-  // Scale search effort
+  // Scale search effort with board size and target complexity
   const maxLayouts = Math.max(20, Math.min(500,
     params.maxAttempts ?? Math.max(60, n * 8 + targetSteps * 3)));
   const subBudget = 12 + Math.floor(n * 1.5);
-  const anchorSpecsPerLayout = 2 + Math.floor(n / 4); // 2-4 anchor specs per Queen layout
+  const anchorSpecsPerLayout = 2 + Math.floor(n / 4);
   const allowApproximate = params.allowApproximate ?? false;
 
   let bestLevel: Level | null = null;
   let bestDiff = Infinity;
   let attempts = 0;
+  let bestAttempt = 0;
   let completeCandidates = 0;
   let incompleteCandidates = 0;
   let exactCandidates = 0;
@@ -146,15 +109,20 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
   let effectiveAnchorCount: number | null = null;
 
   const makeDiagnostics = (status: GenerationStatus): GenerationDiagnostics => ({
-    status, attempts, maxAttempts: maxLayouts,
+    status,
+    attempts,
+    maxAttempts: maxLayouts,
     elapsedMs: Date.now() - startedAt,
-    seed: actualSeed, targetSteps,
+    seed: actualSeed,
+    targetSteps,
     bestActualSteps: bestLevel?.actualSteps ?? null,
     bestDiff: bestLevel ? bestLevel.actualSteps - targetSteps : null,
-    selectedAttempt: bestLevel ? attempts : null,
-    selectedAttemptSeed: bestLevel ? actualSeed + (bestLevel ? attempts : 0) * 7919 : null,
-    completeCandidates, incompleteCandidates, exactCandidates,
-    allowApproximate, useKeyedRegions: false,
+    selectedAttempt: bestLevel ? bestAttempt : null,
+    selectedAttemptSeed: bestLevel ? layoutSeed(actualSeed, bestAttempt - 1, targetSteps) : null,
+    completeCandidates,
+    incompleteCandidates,
+    exactCandidates,
+    allowApproximate,
     anchorStrategy: bestAnchorStrategy,
     anchorQueenIndices: bestAnchorIndices,
     anchorCount: effectiveAnchorCount,
@@ -162,78 +130,77 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
 
   for (let layoutIdx = 0; layoutIdx < maxLayouts; layoutIdx++) {
     attempts = layoutIdx + 1;
-    const layoutSeed = actualSeed + layoutIdx * 7919 + targetSteps * 101;
-    const rng = createRNG(layoutSeed);
+    const rng = createRNG(layoutSeed(actualSeed, layoutIdx, targetSteps));
 
     let queenPositions: Position[];
     try {
       queenPositions = generateQueenPositions(n, rng);
     } catch { continue; }
 
-    // ── Two-phase generation: anchors → fill → verify → refine ──
-    // Try multiple anchor specs per Queen layout.
-    // If an anchor spec + some shapeBias produces a complete board,
-    // record it and continue binary-searching for better step match.
+    // Try multiple anchor specs per Queen layout
     for (let ai = 0; ai < anchorSpecsPerLayout; ai++) {
-      const anchorRng = createRNG(layoutSeed * 10000 + ai * 7777 + 1);
+      const lSeed = layoutSeed(actualSeed, layoutIdx, targetSteps);
+      const anchorRng = createRNG(anchorSeed(lSeed, ai));
       const specs = pickAnchorSpecs(n, queenPositions.length, anchorRng, requestedAnchorCount);
       const anchors = buildAnchorRegions(n, queenPositions, specs, anchorRng);
 
-      // Record anchor diagnostics for this attempt
       const allAnchorIndices = specs.flatMap(s => s.queenIndices);
+      const frozenRegionIds = new Set(allAnchorIndices);
       const strategyLabels = specs.map(s => s.strategy).join('+');
 
-      // Binary search on shapeBias for the fill phase.
-      // Anchors are frozen; shapeBias affects only non-anchor region growth.
-      let lo = 0.0, hi = 1.0;
+      // Binary search on shapeBias — higher bias → more linear regions → more steps
+      let lo = 0.0;
+      let hi = 1.0;
       const stepRatio = targetSteps / Math.max(2, n * 6);
       let shapeBias = 1.0 - Math.max(0.05, Math.min(0.95, stepRatio));
 
       for (let sub = 0; sub < subBudget; sub++) {
-        const fillRng = createRNG(layoutSeed * 100000 + ai * 7777 + sub * 137 + 1);
+        const fillRng = createRNG(fillSeed(lSeed, ai, sub));
         const regions = generateRegions(n, queenPositions, shapeBias, fillRng, anchors);
-        const board = createEmptyBoard(n, regions);
-        const rawResult = solve(board);
+        const rawResult = solve(createEmptyBoard(n, regions));
 
-        if (!rawResult.complete) { incompleteCandidates++; continue; }
+        if (!rawResult.complete) {
+          incompleteCandidates++;
+          continue;
+        }
 
         completeCandidates++;
-        const solvedBoard = applyBatchesUpTo(board, rawResult.batches, rawResult.totalSteps);
-
-        let level: Level = {
-          id: `L${n}x${n}-${actualSeed}-${layoutIdx}-${ai}-${sub}`, n, regions,
-          solution: getQueenPositions(solvedBoard), seed: actualSeed, targetSteps,
-          actualSteps: rawResult.totalSteps,
-          strategySequence: rawResult.batches.map(b => b.strategy),
-          solverResult: rawResult,
-        };
+        let level = assembleLevel(
+          n, regions, actualSeed, targetSteps,
+          `L${n}x${n}-${actualSeed}-${layoutIdx}-${ai}-${sub}`,
+          rawResult,
+        );
 
         // Refine region boundaries to tune step count
         const baseDiff = Math.abs(rawResult.totalSteps - targetSteps);
         const refineBudget = Math.max(10, Math.min(80, baseDiff * 6));
-        const refineRng = createRNG(layoutSeed * 1000000 + ai * 7777 + sub * 137 + 1);
-        level = refineLevel(level, queenPositions, targetSteps, refineRng, refineBudget);
+        const refineRng = createRNG(refineSeed(lSeed, ai, sub));
+        level = refineLevel(level, queenPositions, targetSteps, refineRng, refineBudget, frozenRegionIds);
 
         const diff = level.actualSteps - targetSteps;
         if (diff === 0) {
           exactCandidates++;
+          bestAttempt = attempts;
           bestAnchorStrategy = strategyLabels;
           bestAnchorIndices = allAnchorIndices;
           effectiveAnchorCount = allAnchorIndices.length;
           return { status: 'exact', level, diagnostics: makeDiagnostics('exact') };
         }
+
         if (Math.abs(diff) < bestDiff) {
-          bestDiff = Math.abs(diff); bestLevel = level;
+          bestDiff = Math.abs(diff);
+          bestLevel = level;
+          bestAttempt = attempts;
           bestAnchorStrategy = strategyLabels;
           bestAnchorIndices = allAnchorIndices;
           effectiveAnchorCount = allAnchorIndices.length;
         }
 
-        // Binary search update
+        // actual < target → need more steps → raise bias (more linear regions)
         if (diff < 0) { hi = shapeBias; shapeBias = (lo + hi) / 2; }
-        else { lo = shapeBias; shapeBias = (lo + hi) / 2; }
+        else          { lo = shapeBias; shapeBias = (lo + hi) / 2; }
 
-        if (hi - lo < 0.02) break; // converged for this anchor spec
+        if (hi - lo < 0.02) break;
       }
     }
   }
@@ -241,5 +208,10 @@ export function generateLevelReverse(params: GeneratorParams): GenerationResult 
   if (bestLevel && allowApproximate) {
     return { status: 'approximate', level: bestLevel, diagnostics: makeDiagnostics('approximate') };
   }
-  return { status: 'failed', level: null, diagnostics: makeDiagnostics('failed') };
+
+  return {
+    status: 'failed',
+    level: bestLevel ?? null,
+    diagnostics: makeDiagnostics('failed'),
+  };
 }

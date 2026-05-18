@@ -17,6 +17,7 @@
  */
 
 import { Position, Region, StrategyType } from './types';
+import { posKey, isConnected } from './regionUtils';
 
 const DIRS_4 = [
   { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
@@ -25,25 +26,6 @@ const DIRS_4 = [
 
 function inBounds(r: number, c: number, n: number): boolean {
   return r >= 0 && r < n && c >= 0 && c < n;
-}
-function posKey(p: Position): string { return `${p.row},${p.col}`; }
-
-function isConnected(cells: Position[]): boolean {
-  if (cells.length <= 1) return true;
-  const keys = new Set(cells.map(posKey));
-  const queue = [cells[0]];
-  const seen = new Set<string>([posKey(cells[0])]);
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    for (const { dr, dc } of DIRS_4) {
-      const nk = posKey({ row: cur.row + dr, col: cur.col + dc });
-      if (keys.has(nk) && !seen.has(nk)) {
-        seen.add(nk);
-        queue.push({ row: cur.row + dr, col: cur.col + dc });
-      }
-    }
-  }
-  return seen.size === cells.length;
 }
 
 // ─── Constraint builders ─────────────────────────────────────
@@ -209,8 +191,7 @@ function buildLock3(
  * L3_Projection anchor.
  *
  * Constraint: the anchor's 2-3 cells all lie in the same row or same col.
- * This guarantees the projection intersection contains the rest of that row/col,
- * which (after fill assigns those cells to other regions) means L3_Projection fires.
+ * Only distance-1 cells are taken so the region is always 4-connected.
  */
 function buildProjection(
   n: number, queen: Position,
@@ -220,21 +201,19 @@ function buildProjection(
   const taken = new Set([posKey(queen)]);
   const axis = rng() < 0.5 ? 'row' : 'col';
 
-  // Collect same-axis candidates within distance 2
+  // Collect same-axis neighbours at distance 1 only (guarantees adjacency to Queen)
   const cands: Position[] = [];
-  for (let d = 1; d <= 2; d++) {
-    for (const sign of [-1, 1]) {
-      const p = axis === 'row'
-        ? { row: queen.row, col: queen.col + d * sign }
-        : { row: queen.row + d * sign, col: queen.col };
-      const k = posKey(p);
-      if (inBounds(p.row, p.col, n) && !blocked.has(k) && !taken.has(k)) {
-        cands.push(p);
-      }
+  for (const sign of [-1, 1]) {
+    const p = axis === 'row'
+      ? { row: queen.row, col: queen.col + sign }
+      : { row: queen.row + sign, col: queen.col };
+    const k = posKey(p);
+    if (inBounds(p.row, p.col, n) && !blocked.has(k) && !taken.has(k)) {
+      cands.push(p);
     }
   }
 
-  // Shuffle and take 1-2
+  // Shuffle and take 1-2 (target 2-3 cells total incl. Queen)
   for (let i = cands.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [cands[i], cands[j]] = [cands[j], cands[i]];
@@ -252,9 +231,10 @@ function buildProjection(
 /**
  * L3_Capacity anchor.
  *
- * Constraint: build a 2-cell region inside a 2×2 block.
- * The other 2 cells of the block go to other regions after fill.
- * Solver finds the trapped region → eliminates non-R cells from the block.
+ * Constraint: build a region of 2-3 cells inside a single 2×2 block.
+ * We pick one 2×2 block containing the Queen, then take 1-2 free cells
+ * from that same block. After fill assigns the block's remaining cells
+ * to other regions, the solver finds this region trapped → L3_Capacity fires.
  */
 function buildCapacity(
   n: number, queen: Position,
@@ -263,31 +243,36 @@ function buildCapacity(
   const cells: Position[] = [queen];
   const taken = new Set([posKey(queen)]);
 
-  // Find a 2×2 block containing Queen where at least 1 other cell isn't blocked
-  const corners: Position[] = [];
+  // Collect free cells for each candidate 2×2 block separately
+  const blocks: Position[][] = [];
   for (const dr of [0, -1]) {
     for (const dc of [0, -1]) {
       const r = queen.row + dr, c = queen.col + dc;
-      if (inBounds(r, c, n) && inBounds(r + 1, c + 1, n)) {
-        // This 2×2 has top-left at (r,c)
-        const blockCells: Position[] = [
-          { row: r, col: c }, { row: r, col: c + 1 },
-          { row: r + 1, col: c }, { row: r + 1, col: c + 1 },
-        ];
-        const freeInBlock = blockCells.filter(p => !blocked.has(posKey(p)) && !taken.has(posKey(p)));
-        if (freeInBlock.length >= 1) {
-          corners.push(...freeInBlock);
+      if (!inBounds(r, c, n) || !inBounds(r + 1, c + 1, n)) continue;
+      const freeInBlock: Position[] = [];
+      for (const br of [r, r + 1]) {
+        for (const bc of [c, c + 1]) {
+          const k = posKey({ row: br, col: bc });
+          if (!blocked.has(k) && !taken.has(k)) {
+            freeInBlock.push({ row: br, col: bc });
+          }
         }
+      }
+      if (freeInBlock.length >= 1) {
+        blocks.push(freeInBlock);
       }
     }
   }
 
-  // Shuffle and take 1 extra cell
-  for (let i = corners.length - 1; i > 0; i--) {
+  if (blocks.length === 0) return cells;
+
+  // Pick one block and take 1-2 free cells from it
+  const block = blocks[Math.floor(rng() * blocks.length)];
+  for (let i = block.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [corners[i], corners[j]] = [corners[j], corners[i]];
+    [block[i], block[j]] = [block[j], block[i]];
   }
-  for (const p of corners) {
+  for (const p of block) {
     if (cells.length >= 3) break;
     const k = posKey(p);
     if (!taken.has(k)) { taken.add(k); cells.push(p); }

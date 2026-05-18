@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  generateQueenPositions,
-  generateRegions,
   generateLevel,
   generateLevelResult,
   complexityToTargetSteps,
 } from '../generator';
+import { generateQueenPositions, generateRegions } from '../generatorCore';
 import { generateLevelReverse } from '../reverseGenerator';
 import { createRNG } from '../random';
 import { createEmptyBoard, isBoardValid } from '../rules';

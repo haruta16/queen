@@ -25,7 +25,6 @@ export default function App() {
         seed: 20260515,
         maxAttempts: 2500,
         allowApproximate: true,
-        useKeyedRegions: true,
       }).then(result => {
         if (result.level) loadLevel(result.level);
       });

@@ -15,15 +15,12 @@ import {
   posEqual,
   formatPos,
 } from './rules';
+import { posKey } from './regionUtils';
 
 // ============================================================
 // Solver — 7 strategy types, Level 1→2→3 loop
 // Strict batch contract (design doc §4.2)
 // ============================================================
-
-function posKey(p: Position): string {
-  return `${p.row},${p.col}`;
-}
 
 function posSet(ps: Position[]): Set<string> {
   return new Set(ps.map(posKey));

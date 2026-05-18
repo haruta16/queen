@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildAnchorRegions, pickAnchorSpec, pickAnchorSpecs, AnchorSpec } from '../anchorGenerator';
-import { generateQueenPositions, generateRegions } from '../generator';
+import { generateQueenPositions, generateRegions } from '../generatorCore';
 import { createRNG } from '../random';
 import { createEmptyBoard } from '../rules';
 import { solve } from '../solver';

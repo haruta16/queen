@@ -23,7 +23,6 @@ export type GeneratorDraft = {
   seed: number | null;
   maxAttempts: number;
   allowApproximate: boolean;
-  useKeyedRegions: boolean;
   anchorCount: number | null;
 };
 
@@ -94,7 +93,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     seed: null,
     maxAttempts: 2500,
     allowApproximate: false,
-    useKeyedRegions: false,
     anchorCount: null,
   },
   lastGeneratedLevel: null,
@@ -274,7 +272,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     const actualSeed = params.seed ?? Date.now();
     const maxAttempts = params.maxAttempts ?? get().generatorDraft.maxAttempts;
     const allowApproximate = params.allowApproximate ?? get().generatorDraft.allowApproximate;
-    const useKeyedRegions = params.useKeyedRegions ?? get().generatorDraft.useKeyedRegions;
     const anchorCount = params.anchorCount ?? get().generatorDraft.anchorCount ?? undefined;
     set({
       isGenerating: true,
@@ -285,7 +282,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         seed: params.seed ?? null,
         maxAttempts,
         allowApproximate,
-        useKeyedRegions,
         anchorCount: params.anchorCount ?? null,
       },
     });
@@ -299,7 +295,6 @@ export const useGameStore = create<GameState>((set, get) => ({
             seed: actualSeed,
             maxAttempts,
             allowApproximate,
-            useKeyedRegions,
             anchorCount,
           }));
         }, 50);
@@ -347,7 +342,6 @@ export const useGameStore = create<GameState>((set, get) => ({
           incompleteCandidates: 0,
           exactCandidates: 0,
           allowApproximate,
-          useKeyedRegions,
           anchorStrategy: null,
           anchorQueenIndices: null,
           anchorCount: params.anchorCount ?? null,
