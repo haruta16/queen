@@ -43,6 +43,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
       maxAttempts: clamp(draft.maxAttempts, 1, 100000),
       allowApproximate: draft.allowApproximate,
       anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
+      mode: draft.genMode,
     });
   };
 
@@ -103,6 +104,17 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 {[1, 2, 3, 4].map(x => (
                   <option key={x} value={x}>{x} 个锚点</option>
                 ))}
+              </select>
+            </label>
+
+            <label className="generator-field">
+              <span>生成方式</span>
+              <select
+                value={draft.genMode ?? 'anchor'}
+                onChange={event => updateDraft({ genMode: event.target.value as 'anchor' | 'reverseV2' })}
+              >
+                <option value="anchor">锚点反向 (anchor)</option>
+                <option value="reverseV2">约束堆叠 (reverseV2)</option>
               </select>
             </label>
 

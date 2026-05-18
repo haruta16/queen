@@ -52,7 +52,7 @@ describe('Solver — batch contract', () => {
     const board = makeBoard(layout);
     const result = solve(board);
 
-    const validStrategies = ['L1_Direct', 'L1_Unique', 'L2_Lock1', 'L2_Lock2', 'L2_Lock3', 'L3_Projection', 'L3_Capacity'];
+    const validStrategies = ['L1_Direct', 'L1_Unique', 'L2_Lock1', 'L2_Lock2', 'L2_Lock3', 'L3_Projection', 'L3_Contradiction', 'L3_Capacity'];
     for (const batch of result.batches) {
       expect(validStrategies).toContain(batch.strategy);
     }

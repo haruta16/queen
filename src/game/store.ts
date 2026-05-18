@@ -24,6 +24,7 @@ export type GeneratorDraft = {
   maxAttempts: number;
   allowApproximate: boolean;
   anchorCount: number | null;
+  genMode: 'anchor' | 'reverseV2';
 };
 
 interface GameState {
@@ -94,6 +95,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     maxAttempts: 2500,
     allowApproximate: false,
     anchorCount: null,
+    genMode: 'anchor',
   },
   lastGeneratedLevel: null,
   lastGenerationResult: null,
@@ -273,6 +275,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const maxAttempts = params.maxAttempts ?? get().generatorDraft.maxAttempts;
     const allowApproximate = params.allowApproximate ?? get().generatorDraft.allowApproximate;
     const anchorCount = params.anchorCount ?? get().generatorDraft.anchorCount ?? undefined;
+    const mode = params.mode ?? get().generatorDraft.genMode;
     set({
       isGenerating: true,
       generationError: null,
@@ -283,6 +286,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         maxAttempts,
         allowApproximate,
         anchorCount: params.anchorCount ?? null,
+        genMode: mode,
       },
     });
 
@@ -296,6 +300,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             maxAttempts,
             allowApproximate,
             anchorCount,
+            mode,
           }));
         }, 50);
       });

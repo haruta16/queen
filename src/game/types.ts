@@ -27,6 +27,7 @@ export type StrategyType =
   | 'L2_Lock2'
   | 'L2_Lock3'
   | 'L3_Projection'
+  | 'L3_Contradiction'
   | 'L3_Capacity';
 
 /** One solver batch — a single strategy execution step */
@@ -69,6 +70,8 @@ export type GeneratorParams = {
   allowApproximate?: boolean;
   /** Number of anchor Queens (1-4). When set, overrides random selection. */
   anchorCount?: number;
+  /** Generation mode: 'anchor' (default) or 'reverseV2' */
+  mode?: 'anchor' | 'reverseV2';
 };
 
 /** Generator search outcome */

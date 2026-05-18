@@ -386,140 +386,144 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
 
 // ---- Level 3 ----
 
-function stepL3Projection(board: BoardState, index: number): SolverBatch | null {
-  const n = board.n;
-  const regionIds = getRegionIds(board);
+// ── Shared projection helpers ────────────────────────────────────
 
-  // Collect units with 2 to n candidates for projection check.
-  const maxCands = n;
+function collectCandidateUnits(board: BoardState, n: number): { candidates: Position[]; label: string }[] {
+  const regionIds = getRegionIds(board);
   const units: { candidates: Position[]; label: string }[] = [];
 
   for (let r = 0; r < n; r++) {
     const cands = getCandidatesInRow(board, r);
-    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `第${r}行` });
+    if (cands.length >= 2) units.push({ candidates: cands, label: `第${r}行` });
   }
   for (let c = 0; c < n; c++) {
     const cands = getCandidatesInCol(board, c);
-    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `第${c}列` });
+    if (cands.length >= 2) units.push({ candidates: cands, label: `第${c}列` });
   }
   for (const rid of regionIds) {
     const cands = getCandidatesInRegion(board, rid);
-    if (cands.length >= 2 && cands.length <= maxCands) units.push({ candidates: cands, label: `区域${rid}` });
+    if (cands.length >= 2) units.push({ candidates: cands, label: `区域${rid}` });
   }
 
-  for (const unit of units) {
+  return units;
+}
+
+function candidateProjectionSet(board: BoardState, n: number, cand: Position): Set<string> {
+  const proj = new Set<string>();
+  const rid = board.cells[cand.row][cand.col].regionId;
+
+  for (let cc = 0; cc < n; cc++) if (cc !== cand.col) proj.add(`${cand.row},${cc}`);
+  for (let rr = 0; rr < n; rr++) if (rr !== cand.row) proj.add(`${rr},${cand.col}`);
+  for (let rr = 0; rr < n; rr++)
+    for (let cc = 0; cc < n; cc++)
+      if (board.cells[rr][cc].regionId === rid && !(rr === cand.row && cc === cand.col))
+        proj.add(`${rr},${cc}`);
+  const adj = getAdjacentPositions(cand, n);
+  for (const a of adj) proj.add(`${a.row},${a.col}`);
+
+  return proj;
+}
+
+// ── L3_Projection: candidate projection intersection ─────────────
+
+function stepL3Projection(board: BoardState, index: number): SolverBatch | null {
+  const n = board.n;
+
+  for (const unit of collectCandidateUnits(board, n)) {
     const cands = unit.candidates;
-    const eliminations: Position[] = [];
-    const elimSet = new Set<string>();
-    const reasons: string[] = [];
+    if (cands.length < 2) continue;
 
-    // Common projection intersection
-    const projections: Set<string>[] = [];
-    for (const cand of cands) {
-      const proj = new Set<string>();
-      const rid = board.cells[cand.row][cand.col].regionId;
-      // Row
-      for (let cc = 0; cc < n; cc++) if (cc !== cand.col) proj.add(`${cand.row},${cc}`);
-      // Col
-      for (let rr = 0; rr < n; rr++) if (rr !== cand.row) proj.add(`${rr},${cand.col}`);
-      // Region
-      for (let rr = 0; rr < n; rr++)
-        for (let cc = 0; cc < n; cc++)
-          if (board.cells[rr][cc].regionId === rid && !(rr === cand.row && cc === cand.col))
-            proj.add(`${rr},${cc}`);
-      // Adjacent
-      const adj = getAdjacentPositions(cand, n);
-      for (const a of adj) proj.add(`${a.row},${a.col}`);
-      projections.push(proj);
-    }
+    // Build each candidate's projection set
+    const projections = cands.map(c => candidateProjectionSet(board, n, c));
 
-    // Intersection
+    // Intersection of all projection sets
     let intersection = projections[0];
     for (let i = 1; i < projections.length; i++)
       intersection = new Set([...intersection].filter(x => projections[i].has(x)));
 
+    const eliminations: Position[] = [];
+    const elimSet = new Set<string>();
     for (const key of intersection) {
       if (elimSet.has(key)) continue;
       const [r, c] = key.split(',').map(Number);
       const cell = board.cells[r][c];
-      if (!cell.isQueen && !cell.isX) {
+      if (!cell.isQueen && !cell.isX && !cell.isWrong) {
         elimSet.add(key);
         eliminations.push({ row: r, col: c });
       }
     }
+
     if (eliminations.length > 0) {
-      reasons.push(`${unit.label} 的所有候选都会排除这些公共格`);
       return {
         index,
         strategy: 'L3_Projection',
         eliminations,
         queenConfirmed: [],
-        description: `L3 投影: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
+        description: `L3 投影: ${unit.label} 的所有候选都会排除 ${eliminations.length} 个公共格`,
       };
     }
+  }
 
-    // Single-step fatality
-    candLoop:
+  return null;
+}
+
+// ── L3_Contradiction: single-step fatality ───────────────────────
+
+function stepL3Contradiction(board: BoardState, index: number): SolverBatch | null {
+  const n = board.n;
+  const regionIds = getRegionIds(board);
+
+  for (const unit of collectCandidateUnits(board, n)) {
+    const cands = unit.candidates;
+    if (cands.length < 2) continue;
+
     for (const cand of cands) {
       const candKey = posKey(cand);
       const rid = board.cells[cand.row][cand.col].regionId;
-      const tempX = new Set<string>();
+      const tempX = candidateProjectionSet(board, n, cand);
 
-      for (let cc = 0; cc < n; cc++) if (cc !== cand.col) tempX.add(`${cand.row},${cc}`);
-      for (let rr = 0; rr < n; rr++) if (rr !== cand.row) tempX.add(`${rr},${cand.col}`);
-      for (let rr = 0; rr < n; rr++)
-        for (let cc = 0; cc < n; cc++)
-          if (board.cells[rr][cc].regionId === rid && !(rr === cand.row && cc === cand.col))
-            tempX.add(`${rr},${cc}`);
-      const adj = getAdjacentPositions(cand, n);
-      for (const a of adj) tempX.add(`${a.row},${a.col}`);
-
-      // Check rows
+      // Check if choosing this candidate would starve any other unit
       for (let r = 0; r < n; r++) {
         if (r === cand.row) continue;
         const rowCands = getCandidatesInRow(board, r);
         if (rowCands.length > 0 && rowCands.every(rc => tempX.has(posKey(rc)))) {
-          if (!elimSet.has(candKey)) {
-            elimSet.add(candKey); eliminations.push(cand);
-            reasons.push(`${formatPos(cand)} 若为 Queen 使第${r}行无候选 → 排除`);
-            break candLoop;
-          }
+          return {
+            index,
+            strategy: 'L3_Contradiction',
+            eliminations: [cand],
+            queenConfirmed: [],
+            description: `L3 矛盾: ${formatPos(cand)} 若为 Queen 使第${r}行无候选 → 排除`,
+          };
         }
       }
-      // Check columns
+
       for (let c = 0; c < n; c++) {
         if (c === cand.col) continue;
         const colCands = getCandidatesInCol(board, c);
         if (colCands.length > 0 && colCands.every(cc => tempX.has(posKey(cc)))) {
-          if (!elimSet.has(candKey)) {
-            elimSet.add(candKey); eliminations.push(cand);
-            reasons.push(`${formatPos(cand)} 若为 Queen 使第${c}列无候选 → 排除`);
-            break candLoop;
-          }
+          return {
+            index,
+            strategy: 'L3_Contradiction',
+            eliminations: [cand],
+            queenConfirmed: [],
+            description: `L3 矛盾: ${formatPos(cand)} 若为 Queen 使第${c}列无候选 → 排除`,
+          };
         }
       }
-      // Check regions
+
       for (const rid2 of regionIds) {
         if (rid2 === rid) continue;
         const regCands = getCandidatesInRegion(board, rid2);
         if (regCands.length > 0 && regCands.every(rc => tempX.has(posKey(rc)))) {
-          if (!elimSet.has(candKey)) {
-            elimSet.add(candKey); eliminations.push(cand);
-            reasons.push(`${formatPos(cand)} 若为 Queen 使区域${rid2}无候选 → 排除`);
-            break candLoop;
-          }
+          return {
+            index,
+            strategy: 'L3_Contradiction',
+            eliminations: [cand],
+            queenConfirmed: [],
+            description: `L3 矛盾: ${formatPos(cand)} 若为 Queen 使区域${rid2}无候选 → 排除`,
+          };
         }
       }
-    }
-
-    if (eliminations.length > 0) {
-      return {
-        index,
-        strategy: 'L3_Projection',
-        eliminations,
-        queenConfirmed: [],
-        description: `L3 投影: ${reasons.join('; ')} — 消除 ${eliminations.length} 个 X`,
-      };
     }
   }
 
@@ -625,7 +629,7 @@ export function solve(board: BoardState): SolverResult {
     }
 
     // Level 3
-    for (const fn of [stepL3Projection, stepL3Capacity]) {
+    for (const fn of [stepL3Projection, stepL3Contradiction, stepL3Capacity]) {
       const batch = fn(currentBoard, batchIndex + 1);
       if (batch) {
         batchIndex++;
