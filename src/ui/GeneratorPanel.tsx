@@ -1,5 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { GeneratorDraft, useGameStore } from '../game/store';
+import { solve } from '../game/solver';
+import { createEmptyBoard } from '../game/rules';
+import type { Level, Region, Position } from '../game/types';
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -16,6 +19,100 @@ function statusLabel(status: string): string {
   return '未生成';
 }
 
+function importLevelFromJson(file: File): Promise<Level> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string);
+        const n: number = json.size;
+        const colorMasks: number[] = json.colorMasks;
+        const cows: { x: number; y: number }[] = json.cows;
+
+        if (!Number.isFinite(n) || n < 2 || !Array.isArray(colorMasks) || colorMasks.length !== n * n) {
+          throw new Error(`无效的关卡数据: size=${n}, colorMasks长度=${colorMasks?.length}`);
+        }
+
+        // Group cells by mask value → regions
+        const maskToCells = new Map<number, Position[]>();
+        for (let i = 0; i < colorMasks.length; i++) {
+          const row = Math.floor(i / n);
+          const col = i % n;
+          const mask = colorMasks[i];
+          if (!maskToCells.has(mask)) maskToCells.set(mask, []);
+          maskToCells.get(mask)!.push({ row, col });
+        }
+
+        const regions: Region[] = [...maskToCells.entries()].map(([_mask, cells], idx) => ({
+          id: idx,
+          cells,
+        }));
+
+        // Convert cows (x=col, y=row) to solution positions
+        const solution: Position[] = cows.map(c => ({ row: c.y, col: c.x }));
+
+        // Run solver
+        const board = createEmptyBoard(n, regions);
+        const solverResult = solve(board);
+
+        if (!solverResult.complete) {
+          throw new Error('导入的关卡无法被求解器完全求解');
+        }
+
+        const level: Level = {
+          id: `import-${json.seed || json.levelId || Date.now()}`,
+          n,
+          regions,
+          solution,
+          seed: json.seed ?? json.levelId ?? 0,
+          targetSteps: solverResult.totalSteps,
+          actualSteps: solverResult.totalSteps,
+          strategySequence: solverResult.batches.map(b => b.strategy),
+          solverResult,
+        };
+
+        resolve(level);
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    };
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsText(file);
+  });
+}
+
+function exportLevelAsJson(level: Level) {
+  const sortedRegionIds = [...new Set(level.regions.map(r => r.id))].sort((a, b) => a - b);
+  const maskMap = new Map<number, number>();
+  sortedRegionIds.forEach((rid, i) => maskMap.set(rid, 1 << i));
+
+  const grid: number[][] = Array.from({ length: level.n }, () => Array(level.n).fill(0));
+  for (const region of level.regions) {
+    const mask = maskMap.get(region.id)!;
+    for (const cell of region.cells) {
+      grid[cell.row][cell.col] = mask;
+    }
+  }
+
+  const json = {
+    levelId: level.seed,
+    size: level.n,
+    difficulty: 1,
+    seed: level.seed,
+    note: `Generated from Queen Puzzle Generator. Size: ${level.n}×${level.n}, Steps: ${level.actualSteps}, Seed: ${level.seed}`,
+    colorMasks: grid.flat(),
+    cows: level.solution.map(pos => ({ x: pos.col, y: pos.row })),
+  };
+
+  const blob = new Blob([JSON.stringify(json, null, 4)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `level-${level.n}x${level.n}-s${level.seed}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: () => void }) {
   const isGenerating = useGameStore(s => s.isGenerating);
   const generationError = useGameStore(s => s.generationError);
@@ -25,6 +122,8 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   const lastLevel = useGameStore(s => s.lastGeneratedLevel);
   const lastResult = useGameStore(s => s.lastGenerationResult);
   const enterGeneratedLevel = useGameStore(s => s.enterGeneratedLevel);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const diff = useMemo(() => {
     if (!lastLevel) return null;
@@ -51,12 +150,63 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     if (enterGeneratedLevel()) onEnterMainline?.();
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportError(null);
+    try {
+      const level = await importLevelFromJson(file);
+      useGameStore.setState({
+        lastGeneratedLevel: level,
+        lastGenerationResult: {
+          status: 'exact',
+          level,
+          diagnostics: {
+            status: 'exact',
+            attempts: 1,
+            maxAttempts: 1,
+            elapsedMs: 0,
+            seed: level.seed,
+            targetSteps: level.targetSteps,
+            bestActualSteps: level.actualSteps,
+            bestDiff: 0,
+            selectedAttempt: 1,
+            selectedAttemptSeed: level.seed,
+            completeCandidates: 1,
+            incompleteCandidates: 0,
+            exactCandidates: 1,
+            allowApproximate: false,
+            anchorStrategy: 'import',
+            anchorQueenIndices: null,
+            anchorCount: null,
+          },
+        },
+        generationError: null,
+      });
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    }
+    // Reset input so the same file can be re-imported
+    event.target.value = '';
+  };
+
   const randomizeSeed = () => {
     updateDraft({ seed: Math.floor(100000 + Math.random() * 900000000) });
   };
 
   return (
     <main className="generator-shell">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
       <section className="generator-hero">
         <span className="brand-kicker">LEVEL FORGE</span>
         <h2>关卡生成器</h2>
@@ -169,9 +319,16 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
             <button className="ghost-btn" onClick={handleEnter} disabled={!lastLevel || isGenerating}>
               进入主线
             </button>
+            <button className="ghost-btn" onClick={() => lastLevel && exportLevelAsJson(lastLevel)} disabled={!lastLevel || isGenerating}>
+              导出 JSON
+            </button>
+            <button className="ghost-btn" onClick={handleImportClick} disabled={isGenerating}>
+              导入 JSON
+            </button>
           </div>
 
           {generationError && <p className="generator-error">{generationError}</p>}
+          {importError && <p className="generator-error">{importError}</p>}
         </div>
 
         <div className="generator-results-panel">
