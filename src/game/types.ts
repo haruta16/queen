@@ -75,7 +75,7 @@ export type GeneratorParams = {
   allowApproximate?: boolean;
   /** Number of anchor Queens (1-4). When set, overrides random selection. */
   anchorCount?: number;
-  /** Generation mode: 'anchor' (default) or 'reverseV2' */
+  /** Generation mode: 'reverseV2' (default) or legacy 'anchor' */
   mode?: 'anchor' | 'reverseV2';
 };
 
@@ -106,11 +106,41 @@ export type GenerationDiagnostics = {
   anchorCount: number | null;
 };
 
+export type GenerationTraceCell = {
+  row: number;
+  col: number;
+};
+
+export type GenerationTraceFrame = {
+  index: number;
+  attempt: number;
+  step: number | null;
+  phase: 'init' | 'try' | 'accept' | 'reject' | 'fill' | 'repair' | 'final';
+  strategy: StrategyType | null;
+  accepted: boolean;
+  reason: string;
+  grid: number[][];
+  placed: GenerationTraceCell[];
+  skeleton: GenerationTraceCell[];
+  expected: GenerationTraceCell[];
+  protected: GenerationTraceCell[];
+};
+
+export type GenerationTrace = {
+  n: number;
+  seed: number;
+  targetSteps: number;
+  attempt: number;
+  queenPositions: Position[];
+  frames: GenerationTraceFrame[];
+};
+
 /** Full generator result: a level only exists for exact or accepted approximate hits */
 export type GenerationResult = {
   status: GenerationStatus;
   level: Level | null;
   diagnostics: GenerationDiagnostics;
+  trace?: GenerationTrace;
 };
 
 /** Player board state */

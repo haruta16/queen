@@ -95,7 +95,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     maxAttempts: 2500,
     allowApproximate: false,
     anchorCount: null,
-    genMode: 'anchor',
+    genMode: 'reverseV2',
   },
   lastGeneratedLevel: null,
   lastGenerationResult: null,

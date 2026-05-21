@@ -3,8 +3,8 @@ import {
   GeneratorParams,
   GenerationResult,
 } from './types';
-import { generateLevelReverse } from './reverseGenerator';
 import { generateReverseLevel } from './reverseGenNew';
+import { generateLevelReverse } from './reverseGenerator';
 
 // ============================================================
 // Generator facade — public API for level generation
@@ -14,8 +14,8 @@ import { generateReverseLevel } from './reverseGenNew';
  * Generate a complete, solvable Level with diagnostics.
  * Routes to the appropriate generator based on the mode parameter.
  *
- *   mode='anchor'    → anchor-based reverse generator (default)
- *   mode='reverseV2' → constraint-stacking reverse generator
+ *   mode='reverseV2' → reverse dependency generator (default)
+ *   mode='anchor'    → legacy anchor-based reverse generator
  */
 export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed, mode } = params;
@@ -25,9 +25,13 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const maxAttempts = params.maxAttempts;
   const anchorCount = params.anchorCount;
 
-  const result = mode === 'reverseV2'
-    ? generateReverseLevel({ n, targetSteps, seed: actualSeed, maxAttempts, allowApproximate })
-    : generateLevelReverse({ n, targetSteps, seed: actualSeed, maxAttempts, allowApproximate, anchorCount });
+  if (mode === 'anchor') {
+    const result = generateLevelReverse({ n, targetSteps, seed: actualSeed, maxAttempts, allowApproximate, anchorCount });
+    result.diagnostics.elapsedMs = Date.now() - startedAt;
+    return result;
+  }
+
+  const result = generateReverseLevel({ n, targetSteps, seed: actualSeed, maxAttempts, allowApproximate, anchorCount });
 
   result.diagnostics.elapsedMs = Date.now() - startedAt;
   return result;
