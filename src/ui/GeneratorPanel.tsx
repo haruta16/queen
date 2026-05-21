@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GeneratorDraft, useGameStore } from '../game/store';
 import { solve } from '../game/solver';
 import { createEmptyBoard } from '../game/rules';
-import type { GenerationTraceFrame, Level, Region, Position } from '../game/types';
+import { generateLevelResult } from '../game/generator';
+import type { GenerationResult, GenerationTraceFrame, Level, Region, Position } from '../game/types';
 
 const TRACE_COLORS = [
   '#D9435F', '#E8923A', '#D4B83D', '#47B86B', '#3BBFB6',
@@ -37,7 +38,7 @@ function TraceBoard({ frame, queens }: { frame: GenerationTraceFrame; queens: Po
   const n = frame.grid.length;
 
   return (
-    <div className="trace-board" style={{ gridTemplateColumns: `repeat(${n}, minmax(22px, 1fr))` }}>
+    <div className="trace-board" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
       {frame.grid.flatMap((row, r) => row.map((rid, c) => {
         const key = `${r},${c}`;
         const marks = [
@@ -168,6 +169,8 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [traceIndex, setTraceIndex] = useState(0);
+  const [previewResult, setPreviewResult] = useState<GenerationResult | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
 
   const diff = useMemo(() => {
     if (!lastLevel) return null;
@@ -178,7 +181,42 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     setDraft(patch);
   };
 
-  const trace = lastResult?.trace;
+  const previewSeed = draft.seed ?? 1;
+  const previewKey = [
+    draft.n,
+    draft.targetSteps,
+    previewSeed,
+    draft.anchorCount ?? 'auto',
+    draft.genMode,
+  ].join(':');
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsPreviewing(true);
+    setTraceIndex(0);
+    const timer = window.setTimeout(() => {
+      const result = generateLevelResult({
+        n: clamp(draft.n, 5, 10),
+        targetSteps: clamp(draft.targetSteps, 1, 80),
+        seed: clamp(previewSeed, 1, 999_999_999),
+        maxAttempts: 8,
+        allowApproximate: true,
+        anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
+        mode: draft.genMode,
+      });
+      if (!cancelled) {
+        setPreviewResult(result);
+        setIsPreviewing(false);
+      }
+    }, 420);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [previewKey]);
+
+  const trace = previewResult?.trace ?? lastResult?.trace;
   const traceFrame = trace?.frames[Math.min(traceIndex, Math.max(0, trace.frames.length - 1))];
   const setTraceStep = (next: number) => {
     if (!trace) return;
@@ -468,11 +506,11 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 <div>
                   <span className="brand-kicker">GENERATION SIM</span>
                   <strong>
-                    {traceFrame.index + 1}/{trace.frames.length} · {traceFrame.phase}
+                    {isPreviewing ? '更新中...' : `${traceFrame.index + 1}/${trace.frames.length} · ${traceFrame.phase}`}
                   </strong>
                 </div>
                 <span className={`hit-pill ${traceFrame.accepted ? 'exact' : 'miss'}`}>
-                  {traceFrame.accepted ? 'accepted' : 'rejected'}
+                  {previewResult ? `preview ${previewResult.status}` : traceFrame.accepted ? 'accepted' : 'rejected'}
                 </span>
               </div>
               <TraceBoard frame={traceFrame} queens={trace.queenPositions} />

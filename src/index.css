@@ -779,6 +779,8 @@ button {
 .trace-board {
   display: grid;
   gap: 4px;
+  width: min(100%, 430px);
+  margin: 0 auto;
   padding: 8px;
   border-radius: 10px;
   background: #181511;
@@ -787,6 +789,7 @@ button {
 .trace-cell {
   aspect-ratio: 1;
   min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
   border-radius: 5px;
