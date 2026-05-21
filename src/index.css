@@ -537,13 +537,12 @@ button {
   line-height: 1.35;
 }
 
-.strat-L1_Direct { background: rgba(40,138,66,0.14); color: #1d7536; }
-.strat-L1_Unique { background: rgba(8,127,122,0.14); color: #087f7a; }
+.strat-L1 { background: rgba(8,127,122,0.14); color: #087f7a; }
 .strat-L2_Lock1 { background: rgba(255,176,0,0.2); color: #9b6700; }
 .strat-L2_Lock2 { background: rgba(231,51,79,0.14); color: #b91432; }
 .strat-L2_Lock3 { background: rgba(92,72,184,0.14); color: #4c39a0; }
 .strat-L3_Projection { background: rgba(0,129,184,0.14); color: #006f9c; }
-.strat-L3_Capacity { background: rgba(216,91,32,0.16); color: #a84316; }
+.strat-L3_Contradiction { background: rgba(216,91,32,0.16); color: #a84316; }
 
 .generator-shell {
   flex: 1;

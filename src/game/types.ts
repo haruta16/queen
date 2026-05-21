@@ -19,16 +19,21 @@ export type Region = {
   cells: Position[];
 };
 
-/** 7 concrete strategy types */
+/** 6 concrete strategy types. L1 merges former L1_Direct + L1_Unique into one batch. */
 export type StrategyType =
-  | 'L1_Direct'
-  | 'L1_Unique'
+  | 'L1'
   | 'L2_Lock1'
   | 'L2_Lock2'
   | 'L2_Lock3'
   | 'L3_Projection'
-  | 'L3_Contradiction'
-  | 'L3_Capacity';
+  | 'L3_Contradiction';
+
+/** Region-level geometric constraint for constrained fill */
+export type RegionConstraint =
+  | { type: 'free' }
+  | { type: 'axis'; axis: 'row' | 'col'; value: number }
+  | { type: 'axes'; axis: 'row' | 'col'; values: number[] }
+  | { type: 'block'; corner: Position };
 
 /** One solver batch — a single strategy execution step */
 export type SolverBatch = {

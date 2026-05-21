@@ -183,19 +183,4 @@ describe('anchorGenerator', () => {
     expect(rate).toBeGreaterThan(0.8);
   });
 
-  it('L3_Capacity anchor: solver ALWAYS produces ≥1 batch after fill', () => {
-    for (let trial = 0; trial < 30; trial++) {
-      for (const n of [5, 6, 7, 8]) {
-        const rng = createRNG(5000 + trial * 100 + n * 1000);
-        const queens = generateQueenPositions(n, rng);
-        const anchors = buildAnchorRegions(n, queens,
-          { queenIndices: [0], strategy: 'L3_Capacity' }, rng);
-        const fillRng = createRNG(5000 + trial * 100 + n * 1000 + 777);
-        const regions = generateRegions(n, queens, 0.5, fillRng, anchors);
-        const board = createEmptyBoard(n, regions);
-        const result = solve(board);
-        expect(result.batches.length).toBeGreaterThan(0);
-      }
-    }
-  });
 });

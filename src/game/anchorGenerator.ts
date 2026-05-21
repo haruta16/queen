@@ -9,7 +9,6 @@
  *   L2_Lock2 (2R→2Col)   | 2      | R0,R1 cells ⊆ {Q0.col, Q1.col}          | ABSOLUTE
  *   L2_Lock3 (3R→3Row)   | 3      | R0,R1,R2 cells ⊆ {r0, r1, r2}           | ABSOLUTE
  *   L3_Projection        | 1      | 2-3 cells share a row or col             | HIGH
- *   L3_Capacity          | 1      | R occupies 2 cells of a 2×2 block        | ABSOLUTE
  *
  * Multi-Queen decomposition (anchorCount > 1):
  *   Queens are partitioned into sub-groups, each executing its own sub-strategy.
@@ -228,59 +227,6 @@ function buildProjection(
   return cells;
 }
 
-/**
- * L3_Capacity anchor.
- *
- * Constraint: build a region of 2-3 cells inside a single 2×2 block.
- * We pick one 2×2 block containing the Queen, then take 1-2 free cells
- * from that same block. After fill assigns the block's remaining cells
- * to other regions, the solver finds this region trapped → L3_Capacity fires.
- */
-function buildCapacity(
-  n: number, queen: Position,
-  blocked: Set<string>, rng: () => number,
-): Position[] {
-  const cells: Position[] = [queen];
-  const taken = new Set([posKey(queen)]);
-
-  // Collect free cells for each candidate 2×2 block separately
-  const blocks: Position[][] = [];
-  for (const dr of [0, -1]) {
-    for (const dc of [0, -1]) {
-      const r = queen.row + dr, c = queen.col + dc;
-      if (!inBounds(r, c, n) || !inBounds(r + 1, c + 1, n)) continue;
-      const freeInBlock: Position[] = [];
-      for (const br of [r, r + 1]) {
-        for (const bc of [c, c + 1]) {
-          const k = posKey({ row: br, col: bc });
-          if (!blocked.has(k) && !taken.has(k)) {
-            freeInBlock.push({ row: br, col: bc });
-          }
-        }
-      }
-      if (freeInBlock.length >= 1) {
-        blocks.push(freeInBlock);
-      }
-    }
-  }
-
-  if (blocks.length === 0) return cells;
-
-  // Pick one block and take 1-2 free cells from it
-  const block = blocks[Math.floor(rng() * blocks.length)];
-  for (let i = block.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [block[i], block[j]] = [block[j], block[i]];
-  }
-  for (const p of block) {
-    if (cells.length >= 3) break;
-    const k = posKey(p);
-    if (!taken.has(k)) { taken.add(k); cells.push(p); }
-  }
-
-  return cells;
-}
-
 // ─── Public API ──────────────────────────────────────────────
 
 export type AnchorSpec = {
@@ -346,11 +292,6 @@ export function buildAnchorRegions(
         allRegions.push({ id: idx[0], cells: buildProjection(n, q, blocked, rng) });
         break;
       }
-      case 'L3_Capacity': {
-        const q = queenPositions[idx[0]];
-        allRegions.push({ id: idx[0], cells: buildCapacity(n, q, blocked, rng) });
-        break;
-      }
       default: {
         const q = queenPositions[idx[0]];
         allRegions.push({ id: idx[0], cells: buildLock1(n, q, rng() < 0.5 ? 'row' : 'col', blocked, rng) });
@@ -381,7 +322,7 @@ export function buildAnchorRegions(
  *
  * Returns an array of AnchorSpec, each covering 1-3 Queens.
  * Strategies are chosen to maximize coverage of available strategies:
- *   - Single Queens: L2_Lock1, L3_Projection, L3_Capacity
+ *   - Single Queens: L2_Lock1, L3_Projection
  *   - Queen pairs: L2_Lock2
  *   - Queen triples: L2_Lock3
  *
@@ -434,9 +375,8 @@ export function pickAnchorSpecs(
     if (remaining >= 1) {
       const roll = rng();
       let strategy: StrategyType;
-      if (roll < 0.35) strategy = 'L2_Lock1';
-      else if (roll < 0.6) strategy = 'L3_Projection';
-      else if (roll < 0.85) strategy = 'L3_Capacity';
+      if (roll < 0.4) strategy = 'L2_Lock1';
+      else if (roll < 0.75) strategy = 'L3_Projection';
       else strategy = 'L2_Lock1';
       specs.push({ queenIndices: [chosen[pos]], strategy });
       pos += 1;

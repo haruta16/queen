@@ -203,7 +203,7 @@ export function applyQueen(board: BoardState, pos: Position): { board: BoardStat
 
 /**
  * Place Queen at position WITHOUT propagating X marks.
- * Used by solver's applyBatch so L1_Direct can record the propagation as a separate step.
+ * Used by solver's applyBatch so L1 can record the propagation as a separate step.
  */
 export function placeQueen(board: BoardState, pos: Position): BoardState {
   const b = cloneBoard(board);
