@@ -113,7 +113,6 @@ describe('Solver — output structure', () => {
     expect(result).toHaveProperty('batches');
     expect(result).toHaveProperty('totalSteps');
     expect(result).toHaveProperty('strategyTypesUsed');
-    expect(result).toHaveProperty('highestLevel');
     expect(result.totalSteps).toBe(result.batches.length);
   });
 

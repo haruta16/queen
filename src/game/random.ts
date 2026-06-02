@@ -28,8 +28,3 @@ export function shuffle<T>(arr: T[], rng: RNG): T[] {
 export function randInt(rng: RNG, min: number, max: number): number {
   return Math.floor(rng() * (max - min + 1)) + min;
 }
-
-/** Pick a random element from an array */
-export function pick<T>(arr: T[], rng: RNG): T {
-  return arr[Math.floor(rng() * arr.length)];
-}

@@ -26,7 +26,7 @@ export default function SolverPanel() {
     );
   }
 
-  const { batches, totalSteps, strategyTypesUsed, highestLevel } = result;
+  const { batches, totalSteps, strategyTypesUsed } = result;
   const currentBatch = solverStepIndex > 0 ? batches[solverStepIndex - 1] : null;
 
   return (
@@ -46,10 +46,6 @@ export default function SolverPanel() {
             <div className="solver-stat">
               <div className="solver-stat-label">策略类型</div>
               <div className="solver-stat-value">{strategyTypesUsed.length}</div>
-            </div>
-            <div className="solver-stat">
-              <div className="solver-stat-label">最高等级</div>
-              <div className="solver-stat-value">L{highestLevel}</div>
             </div>
           </div>
 

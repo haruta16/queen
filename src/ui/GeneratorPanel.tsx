@@ -1,14 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { GeneratorDraft, useGameStore } from '../game/store';
 import { solve } from '../game/solver';
 import { createEmptyBoard } from '../game/rules';
-import { generateLevelResult } from '../game/generator';
-import type { GenerationResult, GenerationTraceFrame, Level, Region, Position } from '../game/types';
-
-const TRACE_COLORS = [
-  '#D9435F', '#E8923A', '#D4B83D', '#47B86B', '#3BBFB6',
-  '#3A9FCA', '#7B6CBF', '#D486A8', '#6AAAD4', '#B8A67E',
-];
+import type { Level, Region, Position } from '../game/types';
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -23,44 +17,6 @@ function statusLabel(status: string): string {
   if (status === 'exact') return '精确命中';
   if (status === 'approximate') return '近似结果';
   return '未生成';
-}
-
-function posKey(pos: Position): string {
-  return `${pos.row},${pos.col}`;
-}
-
-function TraceBoard({ frame, queens }: { frame: GenerationTraceFrame; queens: Position[] }) {
-  const queenKeys = useMemo(() => new Set(queens.map(posKey)), [queens]);
-  const placed = useMemo(() => new Set(frame.placed.map(posKey)), [frame]);
-  const skeleton = useMemo(() => new Set(frame.skeleton.map(posKey)), [frame]);
-  const expected = useMemo(() => new Set(frame.expected.map(posKey)), [frame]);
-  const protectedSet = useMemo(() => new Set(frame.protected.map(posKey)), [frame]);
-  const n = frame.grid.length;
-
-  return (
-    <div className="trace-board" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
-      {frame.grid.flatMap((row, r) => row.map((rid, c) => {
-        const key = `${r},${c}`;
-        const marks = [
-          placed.has(key) ? 'trace-placed' : '',
-          skeleton.has(key) ? 'trace-skeleton' : '',
-          expected.has(key) ? 'trace-expected' : '',
-          protectedSet.has(key) ? 'trace-protected' : '',
-          rid < 0 ? 'trace-unknown' : '',
-        ].filter(Boolean).join(' ');
-        return (
-          <div
-            key={key}
-            className={`trace-cell ${marks}`}
-            style={{ background: rid >= 0 ? TRACE_COLORS[rid % TRACE_COLORS.length] : '#f2ede1' }}
-            title={`r${r} c${c} region=${rid}`}
-          >
-            {queenKeys.has(key) ? 'Q' : expected.has(key) ? 'E' : protectedSet.has(key) ? 'P' : skeleton.has(key) ? 'S' : ''}
-          </div>
-        );
-      }))}
-    </div>
-  );
 }
 
 function importLevelFromJson(file: File): Promise<Level> {
@@ -104,11 +60,11 @@ function importLevelFromJson(file: File): Promise<Level> {
         }
 
         const level: Level = {
-          id: `import-${json.seed || json.levelId || Date.now()}`,
+          id: `import-${json.seed || json.LevelID || Date.now()}`,
           n,
           regions,
           solution,
-          seed: json.seed ?? json.levelId ?? 0,
+          seed: json.seed ?? json.LevelID ?? 0,
           targetSteps: solverResult.totalSteps,
           actualSteps: solverResult.totalSteps,
           strategySequence: solverResult.batches.map(b => b.strategy),
@@ -139,7 +95,7 @@ function exportLevelAsJson(level: Level) {
   }
 
   const json = {
-    levelId: level.seed,
+    LevelID: level.seed,
     size: level.n,
     difficulty: 1,
     seed: level.seed,
@@ -168,9 +124,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   const enterGeneratedLevel = useGameStore(s => s.enterGeneratedLevel);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [traceIndex, setTraceIndex] = useState(0);
-  const [previewResult, setPreviewResult] = useState<GenerationResult | null>(null);
-  const [isPreviewing, setIsPreviewing] = useState(false);
 
   const diff = useMemo(() => {
     if (!lastLevel) return null;
@@ -181,58 +134,13 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     setDraft(patch);
   };
 
-  const previewSeed = draft.seed ?? 1;
-  const previewKey = [
-    draft.n,
-    draft.targetSteps,
-    previewSeed,
-    draft.anchorCount ?? 'auto',
-    draft.genMode,
-  ].join(':');
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsPreviewing(true);
-    setTraceIndex(0);
-    const timer = window.setTimeout(() => {
-      const result = generateLevelResult({
-        n: clamp(draft.n, 5, 10),
-        targetSteps: clamp(draft.targetSteps, 1, 80),
-        seed: clamp(previewSeed, 1, 999_999_999),
-        maxAttempts: 8,
-        allowApproximate: true,
-        anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
-        mode: draft.genMode,
-      });
-      if (!cancelled) {
-        setPreviewResult(result);
-        setIsPreviewing(false);
-      }
-    }, 420);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [previewKey]);
-
-  const trace = previewResult?.trace ?? lastResult?.trace;
-  const traceFrame = trace?.frames[Math.min(traceIndex, Math.max(0, trace.frames.length - 1))];
-  const setTraceStep = (next: number) => {
-    if (!trace) return;
-    setTraceIndex(Math.max(0, Math.min(next, trace.frames.length - 1)));
-  };
-
   const handleGenerate = () => {
-    setTraceIndex(0);
     requestGenerate({
       n: clamp(draft.n, 5, 10),
       targetSteps: clamp(draft.targetSteps, 1, 80),
       seed: draft.seed == null ? undefined : clamp(draft.seed, 1, 999_999_999),
       maxAttempts: clamp(draft.maxAttempts, 1, 100000),
       allowApproximate: draft.allowApproximate,
-      anchorCount: draft.anchorCount == null ? undefined : clamp(draft.anchorCount, 1, 4),
-      mode: draft.genMode,
     });
   };
 
@@ -270,9 +178,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
             incompleteCandidates: 0,
             exactCandidates: 1,
             allowApproximate: false,
-            anchorStrategy: 'import',
-            anchorQueenIndices: null,
-            anchorCount: null,
           },
         },
         generationError: null,
@@ -280,7 +185,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     } catch (e) {
       setImportError(e instanceof Error ? e.message : String(e));
     }
-    // Reset input so the same file can be re-imported
     event.target.value = '';
   };
 
@@ -329,33 +233,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 value={draft.targetSteps}
                 onChange={event => updateDraft({ targetSteps: clamp(Number(event.target.value), 1, 80) })}
               />
-            </label>
-
-            <label className="generator-field">
-              <span>锚点区域数</span>
-              <select
-                value={draft.anchorCount ?? ''}
-                onChange={event => {
-                  const raw = event.target.value;
-                  updateDraft({ anchorCount: raw === '' ? null : clamp(Number(raw), 1, 4) });
-                }}
-              >
-                <option value="">自动</option>
-                {[1, 2, 3, 4].map(x => (
-                  <option key={x} value={x}>{x} 个锚点</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="generator-field">
-              <span>生成方式</span>
-              <select
-                value={draft.genMode ?? 'reverseV2'}
-                onChange={event => updateDraft({ genMode: event.target.value as 'anchor' | 'reverseV2' })}
-              >
-                <option value="reverseV2">逆向依赖 (reverseV2)</option>
-                <option value="anchor">旧锚点反向 (anchor)</option>
-              </select>
             </label>
 
             <label className="generator-field">
@@ -485,65 +362,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 <span>派生种子</span>
                 <strong>{lastResult.diagnostics.selectedAttemptSeed ?? '-'}</strong>
               </div>
-              {lastResult.diagnostics.anchorStrategy && (
-                <div>
-                  <span>锚点策略</span>
-                  <strong>{lastResult.diagnostics.anchorStrategy}</strong>
-                </div>
-              )}
-              {lastResult.diagnostics.anchorQueenIndices && lastResult.diagnostics.anchorQueenIndices.length > 0 && (
-                <div>
-                  <span>锚点 Queen</span>
-                  <strong>[{lastResult.diagnostics.anchorQueenIndices.join(', ')}]</strong>
-                </div>
-              )}
-            </div>
-          )}
-
-          {trace && traceFrame && !isGenerating && (
-            <div className="trace-simulator">
-              <div className="trace-header">
-                <div>
-                  <span className="brand-kicker">GENERATION SIM</span>
-                  <strong>
-                    {isPreviewing ? '更新中...' : `${traceFrame.index + 1}/${trace.frames.length} · ${traceFrame.phase}`}
-                  </strong>
-                </div>
-                <span className={`hit-pill ${traceFrame.accepted ? 'exact' : 'miss'}`}>
-                  {previewResult ? `preview ${previewResult.status}` : traceFrame.accepted ? 'accepted' : 'rejected'}
-                </span>
-              </div>
-              <TraceBoard frame={traceFrame} queens={trace.queenPositions} />
-              <div className="trace-controls">
-                <button className="micro-btn" onClick={() => setTraceStep(traceIndex - 1)} disabled={traceIndex <= 0}>上一步</button>
-                <input
-                  type="range"
-                  min={0}
-                  max={trace.frames.length - 1}
-                  value={Math.min(traceIndex, trace.frames.length - 1)}
-                  onChange={event => setTraceStep(Number(event.target.value))}
-                />
-                <button className="micro-btn" onClick={() => setTraceStep(traceIndex + 1)} disabled={traceIndex >= trace.frames.length - 1}>下一步</button>
-              </div>
-              <div className="trace-detail-grid">
-                <div>
-                  <span>Step</span>
-                  <strong>{traceFrame.step ?? '-'}</strong>
-                </div>
-                <div>
-                  <span>Strategy</span>
-                  <strong>{traceFrame.strategy ?? '-'}</strong>
-                </div>
-                <div>
-                  <span>Placed</span>
-                  <strong>{traceFrame.placed.length}</strong>
-                </div>
-                <div>
-                  <span>Expected</span>
-                  <strong>{traceFrame.expected.length}</strong>
-                </div>
-              </div>
-              <p className="trace-reason">{traceFrame.reason}</p>
             </div>
           )}
 
@@ -577,10 +395,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 <div>
                   <span>策略类型</span>
                   <strong>{lastLevel.solverResult.strategyTypesUsed.length}</strong>
-                </div>
-                <div>
-                  <span>最高等级</span>
-                  <strong>L{lastLevel.solverResult.highestLevel}</strong>
                 </div>
                 <div>
                   <span>种子</span>

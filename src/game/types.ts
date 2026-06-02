@@ -19,7 +19,7 @@ export type Region = {
   cells: Position[];
 };
 
-/** 6 concrete strategy types. L1 merges former L1_Direct + L1_Unique into one batch. */
+/** 6 concrete strategy types. */
 export type StrategyType =
   | 'L1'
   | 'L2_Lock1'
@@ -27,13 +27,6 @@ export type StrategyType =
   | 'L2_Lock3'
   | 'L3_Projection'
   | 'L3_Contradiction';
-
-/** Region-level geometric constraint for constrained fill */
-export type RegionConstraint =
-  | { type: 'free' }
-  | { type: 'axis'; axis: 'row' | 'col'; value: number }
-  | { type: 'axes'; axis: 'row' | 'col'; values: number[] }
-  | { type: 'block'; corner: Position };
 
 /** One solver batch — a single strategy execution step */
 export type SolverBatch = {
@@ -50,7 +43,6 @@ export type SolverResult = {
   batches: SolverBatch[];
   totalSteps: number;
   strategyTypesUsed: StrategyType[];
-  highestLevel: number;
 };
 
 /** Serializable level data */
@@ -73,10 +65,6 @@ export type GeneratorParams = {
   seed?: number;
   maxAttempts?: number;
   allowApproximate?: boolean;
-  /** Number of anchor Queens (1-4). When set, overrides random selection. */
-  anchorCount?: number;
-  /** Generation mode: 'reverseV2' (default) or legacy 'anchor' */
-  mode?: 'anchor' | 'reverseV2';
 };
 
 /** Generator search outcome */
@@ -98,49 +86,13 @@ export type GenerationDiagnostics = {
   incompleteCandidates: number;
   exactCandidates: number;
   allowApproximate: boolean;
-  /** Anchor strategy used in the best/returned level */
-  anchorStrategy: string | null;
-  /** Indices of Queens used as anchors */
-  anchorQueenIndices: number[] | null;
-  /** Number of anchor regions requested */
-  anchorCount: number | null;
 };
 
-export type GenerationTraceCell = {
-  row: number;
-  col: number;
-};
-
-export type GenerationTraceFrame = {
-  index: number;
-  attempt: number;
-  step: number | null;
-  phase: 'init' | 'try' | 'accept' | 'reject' | 'fill' | 'repair' | 'final';
-  strategy: StrategyType | null;
-  accepted: boolean;
-  reason: string;
-  grid: number[][];
-  placed: GenerationTraceCell[];
-  skeleton: GenerationTraceCell[];
-  expected: GenerationTraceCell[];
-  protected: GenerationTraceCell[];
-};
-
-export type GenerationTrace = {
-  n: number;
-  seed: number;
-  targetSteps: number;
-  attempt: number;
-  queenPositions: Position[];
-  frames: GenerationTraceFrame[];
-};
-
-/** Full generator result: a level only exists for exact or accepted approximate hits */
+/** Full generator result */
 export type GenerationResult = {
   status: GenerationStatus;
   level: Level | null;
   diagnostics: GenerationDiagnostics;
-  trace?: GenerationTrace;
 };
 
 /** Player board state */
@@ -151,9 +103,6 @@ export type BoardState = {
 
 /** Seeded PRNG function type */
 export type RNG = () => number;
-
-/** Complexity label exposed to users */
-export type ComplexityLabel = '简单' | '中等' | '困难';
 
 /** Operation history entry for undo/redo */
 export type OpHistoryEntry = {

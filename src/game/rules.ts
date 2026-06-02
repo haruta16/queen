@@ -28,13 +28,7 @@ export function getAdjacentPositions(pos: Position, n: number): Position[] {
   return result;
 }
 
-/** Check if there's a Queen in the 8-neighbourhood of pos */
-export function hasAdjacentQueen(board: BoardState, pos: Position): boolean {
-  const adj = getAdjacentPositions(pos, board.n);
-  return adj.some(a => board.cells[a.row][a.col].isQueen);
-}
-
-/** Get all candidate cells in a row (not Queen, not X) */
+/** Get all candidate cells in a row (not Queen, not X, not Wrong) */
 export function getCandidatesInRow(board: BoardState, row: number): Position[] {
   const result: Position[] = [];
   for (let c = 0; c < board.n; c++) {
@@ -88,19 +82,6 @@ export function getRegionIds(board: BoardState): number[] {
     }
   }
   return Array.from(ids);
-}
-
-/** Get all cells belonging to a region */
-export function getRegionCells(board: BoardState, regionId: number): Position[] {
-  const result: Position[] = [];
-  for (let r = 0; r < board.n; r++) {
-    for (let c = 0; c < board.n; c++) {
-      if (board.cells[r][c].regionId === regionId) {
-        result.push({ row: r, col: c });
-      }
-    }
-  }
-  return result;
 }
 
 /**
@@ -310,34 +291,6 @@ export function createEmptyBoard(n: number, regions: Region[]): BoardState {
   }
 
   return { n, cells };
-}
-
-/** Build regions array from a board's cell data */
-export function buildRegionsFromBoard(board: BoardState): Region[] {
-  const n = board.n;
-  const regionMap = new Map<number, Position[]>();
-
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      const rid = board.cells[r][c].regionId;
-      if (!regionMap.has(rid)) {
-        regionMap.set(rid, []);
-      }
-      regionMap.get(rid)!.push({ row: r, col: c });
-    }
-  }
-
-  return Array.from(regionMap.entries()).map(([id, cells]) => ({ id, cells }));
-}
-
-/** Get region ID count */
-export function getRegionCount(board: BoardState): number {
-  return getRegionIds(board).length;
-}
-
-/** Check if two positions are the same */
-export function posEqual(a: Position, b: Position): boolean {
-  return a.row === b.row && a.col === b.col;
 }
 
 /** Format position as human-readable string */

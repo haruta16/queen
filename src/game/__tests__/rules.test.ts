@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   cloneBoard,
   getAdjacentPositions,
-  hasAdjacentQueen,
   getCandidatesInRow,
   getCandidatesInCol,
   getCandidatesInRegion,
@@ -56,20 +55,6 @@ describe('getAdjacentPositions', () => {
   it('returns fewer for edge cell', () => {
     const adj = getAdjacentPositions({ row: 0, col: 2 }, 5);
     expect(adj.length).toBe(5);
-  });
-});
-
-describe('hasAdjacentQueen', () => {
-  it('detects adjacent Queen diagonally', () => {
-    const regions = makeRegions(3, [[0,0,1],[0,0,1],[2,2,1]]);
-    const board = makeBoard(3, regions, [{ row: 0, col: 0 }]);
-    expect(hasAdjacentQueen(board, { row: 1, col: 1 })).toBe(true);
-  });
-
-  it('returns false when no adjacent Queen', () => {
-    const regions = makeRegions(3, [[0,0,1],[0,0,1],[2,2,1]]);
-    const board = makeBoard(3, regions, [{ row: 0, col: 0 }]);
-    expect(hasAdjacentQueen(board, { row: 2, col: 2 })).toBe(false);
   });
 });
 

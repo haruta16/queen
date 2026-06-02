@@ -12,14 +12,12 @@ import {
   getQueenPositions,
   getRegionIds,
   getAdjacentPositions,
-  posEqual,
   formatPos,
 } from './rules';
-import { posKey } from './regionUtils';
+function posKey(p: Position): string { return `${p.row},${p.col}`; }
 
 // ============================================================
-// Solver — 6 strategy types, Level 1→2→3 loop
-// L1 merges former L1_Direct + L1_Unique into one atomic batch.
+// Solver — 6 strategy types, tried in order, any hit restarts from first.
 // ============================================================
 
 function posSet(ps: Position[]): Set<string> {
@@ -33,7 +31,7 @@ function applyBatch(board: BoardState, batch: SolverBatch): BoardState {
   return b;
 }
 
-// ── Level 1 (merged) ──────────────────────────────────────────────
+// ── L1 (Direct + Unique) ──────────────────────────────────────────
 
 function stepL1(board: BoardState, index: number): SolverBatch | null {
   const uniq = findUniqueCandidates(board);
@@ -77,7 +75,7 @@ function stepL1(board: BoardState, index: number): SolverBatch | null {
   };
 }
 
-// ── Level 2 ───────────────────────────────────────────────────────
+// ── L2 Lock ───────────────────────────────────────────────────────
 
 function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
@@ -329,7 +327,7 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
   return null;
 }
 
-// ── Level 3 ───────────────────────────────────────────────────────
+// ── L3 Projection & Contradiction ─────────────────────────────────
 
 function collectCandidateUnits(board: BoardState, n: number): { candidates: Position[]; label: string }[] {
   const regionIds = getRegionIds(board);
@@ -442,6 +440,15 @@ function stepL3Contradiction(board: BoardState, index: number): SolverBatch | nu
 
 // ── Main solver ───────────────────────────────────────────────────
 
+const STRATEGIES = [
+  stepL1,
+  stepL2Lock1,
+  stepL2Lock2,
+  stepL2Lock3,
+  stepL3Projection,
+  stepL3Contradiction,
+];
+
 export function solve(board: BoardState): SolverResult {
   const batches: SolverBatch[] = [];
   let currentBoard = cloneBoard(board);
@@ -449,59 +456,35 @@ export function solve(board: BoardState): SolverResult {
   const maxIterations = 500;
   let iterations = 0;
 
-  mainLoop:
   while (iterations++ < maxIterations) {
-    // Level 1: repeat until no new unique candidates found
-    let l1Batch: SolverBatch | null;
-    while ((l1Batch = stepL1(currentBoard, batchIndex + 1)) !== null) {
-      batchIndex++;
-      batches.push(l1Batch);
-      currentBoard = applyBatch(currentBoard, l1Batch);
-    }
+    if (isBoardComplete(currentBoard)) return buildResult(true, batches);
 
-    if (isBoardComplete(currentBoard)) return buildResult(true, batches, batchIndex);
-
-    // Level 2: first hit returns to L1
-    for (const fn of [stepL2Lock1, stepL2Lock2, stepL2Lock3]) {
+    let produced = false;
+    for (const fn of STRATEGIES) {
       const batch = fn(currentBoard, batchIndex + 1);
       if (batch) {
         batchIndex++;
         batches.push(batch);
         currentBoard = applyBatch(currentBoard, batch);
-        continue mainLoop;
+        produced = true;
+        break;
       }
     }
 
-    // Level 3: first hit returns to L1
-    for (const fn of [stepL3Projection, stepL3Contradiction]) {
-      const batch = fn(currentBoard, batchIndex + 1);
-      if (batch) {
-        batchIndex++;
-        batches.push(batch);
-        currentBoard = applyBatch(currentBoard, batch);
-        continue mainLoop;
-      }
-    }
-
-    break;
+    if (!produced) break;
   }
 
-  if (isBoardComplete(currentBoard)) return buildResult(true, batches, batchIndex);
-  return buildResult(false, batches, batchIndex);
+  if (isBoardComplete(currentBoard)) return buildResult(true, batches);
+  return buildResult(false, batches);
 }
 
-function buildResult(complete: boolean, batches: SolverBatch[], totalSteps: number): SolverResult {
-  const typesUsed = new Set(batches.map(b => b.strategy));
-  const strategyTypesUsed = Array.from(typesUsed);
-
-  let highestLevel = 0;
-  for (const t of strategyTypesUsed) {
-    if (t === 'L1') highestLevel = Math.max(highestLevel, 1);
-    else if (t.startsWith('L2_')) highestLevel = Math.max(highestLevel, 2);
-    else if (t.startsWith('L3_')) highestLevel = Math.max(highestLevel, 3);
-  }
-
-  return { complete, batches, totalSteps, strategyTypesUsed, highestLevel };
+function buildResult(complete: boolean, batches: SolverBatch[]): SolverResult {
+  return {
+    complete,
+    batches,
+    totalSteps: batches.length,
+    strategyTypesUsed: [...new Set(batches.map(b => b.strategy))],
+  };
 }
 
 export function applyBatchesUpTo(board: BoardState, batches: SolverBatch[], step: number): BoardState {
