@@ -41,7 +41,7 @@
 | 策略步骤总数 (totalSteps) | 最优解中 SolverBatch 的总个数 | 数量 |
 | 策略序列 (strategySequence) | SolverBatch 的 StrategyType 按顺序排列 | 序列 |
 
-例如 10×10 棋盘的最优解可能含 34 个策略批次（totalSteps=34），其中使用了 L1_Direct、L1_Unique、L2_Lock1 三种策略类型，最高策略等级为 Level 2。
+例如 7×7 棋盘的最优解可能含 22 个策略批次（totalSteps=22），其中使用了 L1、L2_Lock1 两种策略类型。
 
 ## 产品核心原则
 
@@ -49,8 +49,8 @@
 
 - 是固定关卡 Queen Puzzle，不是无尽模式。
 - 玩家的核心操作是标记 X 和确认 Queen。
-- 求解器实现全部 7 种策略类型（L1_Direct / L1_Unique / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Capacity）。
-- 策略按 Level 1→2→3 循环执行，任意策略产出新 X 立即回到 Level 1。
+- 求解器实现全部 6 种策略类型（L1 / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Contradiction）。
+- 6 种策略按复杂度从低到高依次尝试，任意策略命中立即回到 L1 重新开始。
 - 求解器输出完整的 SolverBatch[] 序列。
 - 关卡全部由生成器生成，无手工关卡。
 - 生成器参数：n（棋盘大小）+ targetSteps（目标策略步骤总数）。
@@ -115,8 +115,8 @@ src/main.tsx
 
 - `types.ts`：所有数据结构定义，包含 SolverBatch、SolverResult、Level 等完整类型。无逻辑。
 - `rules.ts`：纯函数规则引擎，负责邻接检查、区域有效性、候选计算、唯一候选判断。
-- `solver.ts`：纯函数求解器，实现全部 7 种策略类型，按 Level 1→2→3 循环，输出 `SolverBatch[]`。批次合并粒度必须一致。不依赖 React。
-- `generator.ts`：纯函数+随机数生成器。给定 n、targetSteps 和种子，生成合法棋盘。内部调用 solver 验证。通过调整区域复杂度参数控制 targetSteps。
+- `solver.ts`：纯函数求解器，实现全部 6 种策略类型，扁平循环执行，输出 `SolverBatch[]`。批次合并粒度必须一致。不依赖 React。
+- `generator.ts`：纯函数+随机数生成器。给定 n、targetSteps 和种子，通过大量随机尝试 + solver 验证，找到最接近 targetSteps 的合法棋盘。
 - `store.ts`：持有当前游戏状态，调用规则函数、求解器和生成器，向 UI 暴露操作。
 - UI 组件只负责渲染和触发 action，不承载规则、求解或生成逻辑。
 
@@ -173,9 +173,9 @@ src/main.tsx
 
 - 关卡生成器可根据 n（5-10）和 targetSteps 生成合法关卡。
 - 生成器可通过 targetSteps 区分不同推理复杂度的关卡。
-- 生成器生成的关卡有唯一解且可用 Level 1-3 策略求解。
+- 生成器生成的关卡有唯一解且可用 6 种策略求解。
 - 生成器的关卡数据包含完整的最优解策略类型序列（strategySequence）。
-- 求解器实现全部 7 种策略类型，输出完整 SolverBatch[] 序列。
+- 求解器实现全部 6 种策略类型，输出完整 SolverBatch[] 序列。
 - 玩家可以在棋盘上标记 X 和确认 Queen。
 - 规则检查实时生效，错误操作有清晰反馈。
 - 求解器可以自动求解并可视化展示策略批次序列。

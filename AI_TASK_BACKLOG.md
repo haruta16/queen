@@ -40,8 +40,8 @@
 
 产出：
 
-- `types.ts` 包含所有核心类型：Position、CellState、Region、BoardState、StrategyType（7 种）、SolverBatch、SolverResult、Level、GeneratorParams。
-- 特别关注：SolverBatch 的 strategy 字段类型为 StrategyType，SolverResult 包含 batches/totalSteps/strategyTypesUsed/highestLevel，Level 包含 strategySequence。
+- `types.ts` 包含所有核心类型：Position、CellState、Region、BoardState、StrategyType（6 种）、SolverBatch、SolverResult、Level、GeneratorParams。
+- 特别关注：SolverBatch 的 queenConfirmed 为 Position[]（每批可多个），SolverResult 包含 batches/totalSteps/strategyTypesUsed，Level 包含 solution 和 strategySequence。
 
 验收：
 

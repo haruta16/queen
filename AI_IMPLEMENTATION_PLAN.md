@@ -12,7 +12,7 @@
 
 目标 MVP：
 
-> 一个浏览器可玩的 Queen 解谜游戏原型，包含：关卡生成器（通过 n 和 targetSteps 控制关卡推理复杂度）、求解器（实现全部 7 种策略类型，输出完整 SolverBatch[] 序列并可视化展示）、可交互棋盘 UI、以及几何动感风格的视觉表现。
+> 一个浏览器可玩的 Queen 解谜游戏原型，包含：关卡生成器（通过 n 和 targetSteps 控制关卡推理复杂度）、求解器（实现全部 6 种策略类型，输出完整 SolverBatch[] 序列并可视化展示）、可交互棋盘 UI、以及几何动感风格的视觉表现。
 
 关键概念（实现前必须理解）：
 
@@ -71,10 +71,10 @@
 
 - `Position`、`CellState`、`Region`：基础数据结构。
 - `BoardState`：玩家棋盘状态。
-- `StrategyType`：7 种策略类型枚举（L1_Direct / L1_Unique / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Capacity）。
+- `StrategyType`：6 种策略类型枚举（L1 / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Contradiction）。
 - `SolverBatch`：求解步骤批次（index、strategy、eliminations、queenConfirmed、description）。
-- `SolverResult`：求解结果（complete、batches、totalSteps、strategyTypesUsed、highestLevel）。
-- `Level`：关卡数据（id、n、regions、seed、targetSteps、actualSteps、strategySequence、solverResult）。
+- `SolverResult`：求解结果（complete、batches、totalSteps、strategyTypesUsed）。
+- `Level`：关卡数据（id、n、regions、solution、seed、targetSteps、actualSteps、strategySequence、solverResult）。
 - `GeneratorParams`：生成器参数（n、targetSteps、seed?）。
 - `RNG`：种子化随机数生成器类型（`() => number`）。
 
@@ -113,7 +113,7 @@
 
 目标：
 
-- 实现全部 7 种策略类型和 Level 1→2→3 主循环，输出完整 SolverBatch[] 序列。
+- 实现全部 6 种策略类型和扁平主循环，输出完整 SolverBatch[] 序列。
 
 核心函数：
 
@@ -149,7 +149,7 @@ loop:
   for strategy in [L2_Lock1, L2_Lock2, L2_Lock3]:
     batch = strategy(); if batch → push to result, goto loop_start
 
-  for strategy in [L3_Projection, L3_Capacity]:
+  for strategy in [L3_Projection, L3_Contradiction]:
     batch = strategy(); if batch → push to result, goto loop_start
 
   break  // no strategy produced — stuck (incomplete if board not solved)
@@ -157,7 +157,7 @@ loop:
 
 关键实现要点：
 
-- **批次合并粒度**：这是一个关键设计决策，必须在求解器中明确定义且保持一致。例如：一次 L1_Direct 执行可能消除来自多个 Queen 的 X——是合并为一个批次还是每个 Queen 一个批次？推荐合并为一个批次（因为它们是同一次策略执行的结果）。此粒度直接影响 totalSteps 数值，生成器依赖此数值。
+- **批次合并粒度**：L1 每批次处理一个 Queen（唯一候选 → 确认 Queen → applyQueen 传播 X）。L2/L3 每批次处理一组 X 消除。所有策略均：一次调用一个批次。此粒度直接影响 totalSteps 数值，生成器依赖此数值。
 - 每个 SolverBatch 的 index 从 1 开始递增。
 - description 字段应包含人类可读信息，如 "从 r3c2 的 Queen 传播，消除同行/列/区域/相邻共 6 个 X"。
 

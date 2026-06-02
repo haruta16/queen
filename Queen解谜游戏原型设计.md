@@ -14,7 +14,7 @@
 
 - Queens 的四条刚性约束（行列区域各一、互不相邻）。
 - 候选消元式的解题推进（标记 X 而非放置 Queen）。
-- 从 Level 1 到 Level 3 的递进策略分类体系。
+- 从 L1（唯一候选）到 L3（矛盾排除）的 6 种策略体系。
 - 固定关卡 Puzzle 的明确解法和短局反馈。
 
 ## 2. 玩法规则
@@ -61,62 +61,49 @@
 
 核心观点：**策略的核心是消元，不是放 Queen。** 高级策略负责制造 X，基础唯一规则负责确认 Queen。
 
-## 3. 策略体系（Level 1-3）
+## 3. 策略体系
 
-完整策略体系见 `LinkedIn-Queens-solving-strategies.md`。MVP 阶段实现 Level 1-3，暂不涉及 Level 4（假设型消元）。
+完整策略体系见 `LinkedIn-Queens-solving-strategies.md`。MVP 阶段实现 6 种策略类型，暂不涉及多步假设型消元。
 
 ### 3.1 概念层级
 
-理解本项目的策略体系，需要区分三个层级的概念：
+理解本项目的策略体系，需要区分两个层级的概念：
 
 | 概念 | 含义 | 例子 |
 |---|---|---|
-| **策略等级 (Level)** | 策略的难度分类。是一种归类标签，不是可数的个体。 | Level 1、Level 2、Level 3 |
-| **策略类型 (StrategyType)** | 等级之下的具体策略。共 7 种。 | L1_Direct、L2_Lock1、L3_Capacity |
-| **策略批次 / 策略步 (Batch/Step)** | 求解器中每次策略执行，产出一批 X 消除或确认一个 Queen。是可数的个体。 | 第 1 步：L1_Unique → 确认 Queen 在 (0,2)；第 2 步：L1_Direct → 消除 5 个 X... |
+| **策略类型 (StrategyType)** | 具体的推理策略。共 6 种。 | L1、L2_Lock1、L3_Projection |
+| **策略批次 / 策略步 (Batch/Step)** | 求解器中每次策略执行，产出一批 X 消除或确认一个 Queen。是可数的个体。 | 第 1 步：L1 → 确认 Queen 在 (0,2)，传播消除 5 X；第 2 步：L1 → 确认 Queen 在 (3,1)，传播消除 6 X... |
 
-关键区分：
-
-```text
-等级是分类，不是数量。
-"本关用到了 Level 2" —— 说的是等级（分类）。
-"本关最优解需要 34 个策略步" —— 说的是数量（批次个数）。
-```
-
-求解器输出的是一串策略批次序列，例如 8×8 棋盘的最优解可能是：
+求解器输出的是一串策略批次序列，例如 7×7 棋盘的最优解可能是：
 
 ```text
-Step  1: L1_Unique  → 确认 Queen at (0,3)
-Step  2: L1_Direct  → 消除 6 个 X
-Step  3: L1_Unique  → 确认 Queen at (2,5)
-Step  4: L1_Direct  → 消除 7 个 X
-Step  5: L2_Lock1   → 消除 3 个 X
-Step  6: L1_Unique  → 确认 Queen at (5,1)
-Step  7: L1_Direct  → 消除 5 个 X
+Step  1: L1           → 确认 Queen at (0,3)，传播消除 5 X
+Step  2: L1           → 确认 Queen at (1,5)，传播消除 7 X
+Step  3: L2_Lock1     → 消除 3 个 X
+Step  4: L1           → 确认 Queen at (3,0)，传播消除 6 X
 ...
-Step 26: L1_Unique  → 确认 Queen at (7,7)
-Step 27: L1_Direct  → 消除 2 个 X
+Step 22: L1           → 确认 Queen at (6,6)，传播消除 4 X
 ```
 
-这串序列有 27 个批次——这就是本关的**策略步骤总数**。其中用到了 L1_Direct、L1_Unique、L2_Lock1 三种策略类型，最高策略等级为 Level 2。
+这串序列有 22 个批次——这就是本关的**策略步骤总数**。其中用到了 L1、L2_Lock1 两种策略类型。
 
-### 3.2 Level 1：Queen 约束传播
+### 3.2 L1 — 唯一候选确认
 
-策略类型：`L1_Direct`、`L1_Unique`
+策略类型：`L1`
 
-已确认 Queen 直接排除同行、同列、同区域、相邻格（8 方向）。标 X 后连锁检查是否有行/列/区域只剩唯一候选，确认新 Queen。
+检查所有行/列/区域：若某单位只剩 1 个候选格 → 确认该格为 Queen → 同时传播 X（同行/同列/同区域/8 邻域）。每次只处理一个 Queen，确认后主循环回到 L1 重新检查。
 
-### 3.3 Level 2：集合占位
+### 3.3 L2 锁定 — 鸽巢占位
 
 策略类型：`L2_Lock1`、`L2_Lock2`、`L2_Lock3`
 
-k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部候选标 X。从 k=1（锁定）到 k≥3（多单位占位），全部是同一逻辑。
+k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部候选标 X。从 k=1（单锁定）到 k=3（三锁定），全部是同一逻辑。仅产出 X 消除，不确认 Queen。
 
-### 3.4 Level 3：相邻投影与容量溢出
+### 3.4 L3 — 几何投影与单步矛盾
 
-策略类型：`L3_Projection`、`L3_Capacity`
+策略类型：`L3_Projection`、`L3_Contradiction`
 
-候选集合形成直接共同投影（相邻禁区的交集），或高约束空间（如 2×2 方块）容量被占满后排除外部候选。
+L3_Projection：候选集合的投影取交集 → 交集格无论选哪个候选都会被消除 → 标 X。L3_Contradiction：假设某候选是 Queen → 一轮直接传播后某单位候选归零 → 矛盾 → 该候选标 X。仅产出 X 消除，不确认 Queen。
 
 ## 4. 核心系统
 
@@ -152,26 +139,27 @@ k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部�
 **生成流程：**
 
 ```text
-1. 随机生成合法 Queen 布局（n 个 Queen，满足行列邻接约束）
-2. 以 Queen 位置为种子，BFS 生长颜色区域（保证连通且每区域恰含 1 Queen）
-3. 移除 Queen，构建谜题棋盘
-4. 用求解器求解，获得完整策略批次序列 batches[]
-5. 检查求解完整性：若求解器无法完成（需要 Level 4）→ 拒绝，回到步骤 1 或 2
-6. 统计策略步骤总数 = batches.length
-7. 若 |batches.length - targetSteps| ≤ tolerance → 输出关卡
-8. 若 batches.length < targetSteps → 调整区域以增加推理链长度，回到步骤 2
-9. 若 batches.length > targetSteps → 调整区域以简化推理链，回到步骤 2
+1. 以 seed 为种子创建 PRNG
+2. for attempt in 1..maxAttempts:
+   a. 以 seed + attempt*7919 为 PRNG 种子（每次尝试确定但不同）
+   b. 随机生成合法 Queen 布局（n 个 Queen，满足行列邻接约束）
+   c. 以 Queen 位置为种子，多源 BFS 生长颜色区域
+   d. 用求解器求解棋盘
+   e. 若求解不完整 → 跳过
+   f. 若 |actualSteps - targetSteps| === 0 → 精确命中，立即返回
+   g. 若比当前最优更接近 → 更新 bestLevel
+3. 返回精确命中、近似最优、或失败
 ```
 
-**调整区域的策略（影响推理链长度）：**
+**步骤数控制策略：**
 
-- **增加步骤**：让更多区域的候选跨越多个行/列（触发 L2）；制造候选格相邻聚集（触发 L3）
-- **减少步骤**：让区域候选更集中在单行/单列内（纯 L1 可解）；减少区域之间的候选重叠
-- **区域复杂度参数**：区域跨度（rowSpan/colSpan）、区域间重叠度、候选相邻密度
+不通过参数调整区域复杂度来控制步骤数。改为大量随机尝试（默认 200 次），每次尝试自然产生不同形状的区域布局，实际步骤数由求解器实测得出。选择最接近 targetSteps 的候选。
+
+这种"蒙特卡洛"式方法简单可靠：区域的随机 BFS 生长天然产生不同复杂度（从条状到不规则），无需显式的复杂度参数。
 
 **生成器保证：**
 - 每个生成的关卡有且仅有唯一解。
-- 关卡可使用 Level 1-3 策略求解，不需要 Level 4（猜测）。
+- 关卡可使用 6 种策略完全求解，不依赖多步假设型消元。
 - 策略步骤总数在 targetSteps 的误差容忍范围内。
 
 **关于策略序列控制（未来）：**
@@ -186,8 +174,8 @@ k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部�
 
 **功能：**
 - 给定一个棋盘（颜色区域布局），自动求解 Queen 位置。
-- 实现 Level 1-3 全部 7 种策略类型，按策略等级优先级顺序执行。
-- 输出完整的 `SolverResult`（含 `batches` 数组、`totalSteps`、`strategyTypesUsed`、`highestLevel`）。
+- 实现全部 6 种策略类型，按复杂度从低到高依次尝试。
+- 输出完整的 `SolverResult`（含 `batches` 数组、`totalSteps`、`strategyTypesUsed`）。
 - 支持以可视化方式展示求解过程（逐批次展示 X 消除和 Queen 确认）。
 
 **批次合同（Solver Batching Contract）——生成器依赖此合同，必须严格遵守，不可自行变更：**
@@ -198,14 +186,13 @@ k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部�
   则该策略不产生 SolverBatch。直接跳到下一个策略。
 
 规则 2 — 一次调用一个批次：
-  L1_Direct 对所有已确认 Queen 传播的所有 X 合并为一个批次。
-  L1_Unique 本轮确认的所有 Queen 合并为一个批次。
-  L2_Lock1/L2_Lock2/L2_Lock3 各自独立，每次调用最多产出一个批次。
-  L3_Projection/L3_Capacity 各自独立，每次调用最多产出一个批次。
+  每个策略函数每次调用最多产出一个 SolverBatch。
+  L1 每批次处理一个 Queen（唯一候选 → 确认 Queen → 传播 X）。
+  L2 和 L3 策略每批次产出一组 X 消除，不确认 Queen。
 
 规则 3 — 批次内不连锁：
-  同一批次中确认的 Queen，不在该批次内触发 L1_Direct 传播。
-  新 Queen 的传播在下一轮 L1 循环中处理。
+  同一批次内不触发新的策略推理。
+  新 Queen 的传播包含在 L1 批次的 eliminations 中（由 applyQueen 一步完成）。
 
 规则 4 — index 严格递增：
   SolverBatch.index 从 1 开始，每个产出批次递增 1，不跳号。
@@ -214,25 +201,17 @@ k 个单位的候选只分布在 k 个资源中 → 资源被独占 → 外部�
 **求解器主循环：**
 
 ```text
-每次标出新 X → 立即回到 Level 1 从头开始
+每次策略命中 → 记录批次 → 应用棋盘 → 回到 L1 从头开始
 
-Level 1:
-  L1_Direct:  对每个已确认 Queen，标记同行/同列/同区域/相邻格为 X
-  L1_Unique:  检查所有行/列/区域，若只剩 1 个候选则确认为 Queen
-  循环交替执行直到无新产出
-    ↓ 无新 X
-Level 2:
-  L2_Lock1: 单单位锁定（k=1）
-  L2_Lock2: 双单位对子（k=2）
-  L2_Lock3: 三单位占位（k=3）
-  任意一个产出新 X → 立即回到 Level 1
-    ↓ 无新 X
-Level 3:
-  L3_Projection: 候选集合共同相邻投影（含单步致死检查）
-  L3_Capacity:   容量溢出检测
-  任意一个产出新 X → 立即回到 Level 1
-    ↓ 无新 X
-盘面在当前信息下已无进展（若未完成则需 Level 4，MVP 中视为生成失败）
+策略尝试顺序（扁平，不按 Level 分组）：
+  1. L1:               唯一候选确认 + Queen 传播
+  2. L2_Lock1:         单锁定（k=1 鸽巢）
+  3. L2_Lock2:         双锁定（k=2 鸽巢）
+  4. L2_Lock3:         三锁定（k=3 鸽巢）
+  5. L3_Projection:    投影交集
+  6. L3_Contradiction: 单步矛盾
+
+全部策略无产出 → 盘面在当前信息下已无进展（求解器能力边界）
 ```
 
 **SolverBatch 结构：**
@@ -242,7 +221,7 @@ type SolverBatch = {
   index: number;                    // 批次序号（从 1 开始）
   strategy: StrategyType;           // 触发本批次的策略类型
   eliminations: Position[];         // 本批次新标记的 X 位置
-  queenConfirmed: Position | null;  // 本批次确认的 Queen 位置（如有）
+  queenConfirmed: Position[];       // 本批次确认的 Queen 位置
   description: string;              // 人类可读描述
 };
 ```
@@ -312,16 +291,15 @@ type SolverBatch = {
 
 ### 5.8 求解器面板视觉
 
-7 种策略类型用颜色编码标签：
+6 种策略类型用颜色编码标签：
 
 ```
-L1_Direct     #4CAF50 绿
-L1_Unique     #2196F3 蓝
-L2_Lock1      #FF9800 橙
-L2_Lock2      #F44336 红
-L2_Lock3      #9C27B0 紫
-L3_Projection #00BCD4 青
-L3_Capacity   #FF5722 深橙
+L1                #4CAF50 绿
+L2_Lock1          #FF9800 橙
+L2_Lock2          #F44336 红
+L2_Lock3          #9C27B0 紫
+L3_Projection     #00BCD4 青
+L3_Contradiction  #FF5722 深橙
 ```
 
 批次列表每行：`[序号] [策略类型色标] [描述] · 消除 X 个 X · 确认 Queen: rXcY`
@@ -374,7 +352,7 @@ L3_Capacity   #FF5722 深橙
 
 ### 6.2 求解器面板
 
-- 显示求解总览：总步骤数、用到的策略类型、最高策略等级。
+- 显示求解总览：总步骤数、用到的策略类型。
 - 以列表形式展示每个求解批次：
   - 每行显示：批次序号、策略类型标签、消除的 X 数量、确认的 Queen 位置（如有）、可读描述。
 - 支持逐步骤播放/暂停/单步前进/后退。
@@ -409,7 +387,7 @@ src/
   game/
     types.ts          # 所有类型定义
     rules.ts          # 纯规则函数（邻接检查、区域有效性、候选计算）
-    solver.ts         # 求解器（7 种策略类型，Level 1-3 循环）
+    solver.ts         # 求解器（6 种策略类型，扁平循环）
     generator.ts      # 关卡生成器（Queen 布局 + 区域生长 + 求解验证）
     random.ts         # 种子化 PRNG（mulberry32），生成器和测试共用
     store.ts          # zustand store，持有游戏状态
@@ -468,6 +446,7 @@ type CellState = {
   regionId: number;
   isQueen: boolean;
   isX: boolean;
+  isWrong: boolean;       // 玩家猜错后的红色错误标记（不可撤销）
 };
 
 // 颜色区域
@@ -476,32 +455,30 @@ type Region = {
   cells: Position[];
 };
 
-// 7 种策略类型
+// 6 种策略类型
 type StrategyType =
-  | 'L1_Direct'
-  | 'L1_Unique'
+  | 'L1'
   | 'L2_Lock1'
   | 'L2_Lock2'
   | 'L2_Lock3'
   | 'L3_Projection'
-  | 'L3_Capacity';
+  | 'L3_Contradiction';
 
 // 求解步骤批次
 type SolverBatch = {
   index: number;
   strategy: StrategyType;
   eliminations: Position[];
-  queenConfirmed: Position | null;
+  queenConfirmed: Position[];   // L1 每批一个，L2/L3 为空
   description: string;
 };
 
 // 求解结果
 type SolverResult = {
-  complete: boolean;          // 是否完全求解（false = 需要 Level 4）
-  batches: SolverBatch[];     // 策略批次序列
-  totalSteps: number;         // 策略步骤总数 = batches.length
+  complete: boolean;                 // 是否完全求解
+  batches: SolverBatch[];            // 策略批次序列
+  totalSteps: number;                // 策略步骤总数 = batches.length
   strategyTypesUsed: StrategyType[]; // 用到的策略类型（去重）
-  highestLevel: number;       // 用到的最高策略等级（1/2/3）
 };
 
 // 关卡数据（可序列化）
@@ -509,11 +486,12 @@ type Level = {
   id: string;
   n: number;
   regions: Region[];
+  solution: Position[];              // 真实答案（Queen 位置列表）
   seed: number;
-  targetSteps: number;           // 生成时的目标策略步骤总数
-  actualSteps: number;           // 求解器实测策略步骤总数
-  strategySequence: StrategyType[]; // 最优解的策略类型序列
-  solverResult: SolverResult;    // 完整求解结果
+  targetSteps: number;               // 生成时的目标策略步骤总数
+  actualSteps: number;               // 求解器实测策略步骤总数
+  strategySequence: StrategyType[];  // 最优解的策略类型序列
+  solverResult: SolverResult;        // 完整求解结果（嵌入关卡）
 };
 
 // 生成器参数
@@ -521,6 +499,15 @@ type GeneratorParams = {
   n: number;
   targetSteps: number;
   seed?: number;
+  maxAttempts?: number;
+  allowApproximate?: boolean;
+};
+
+// 生成结果
+type GenerationResult = {
+  status: 'exact' | 'approximate' | 'failed';
+  level: Level | null;
+  diagnostics: GenerationDiagnostics;
 };
 
 // 玩家棋盘状态
@@ -535,11 +522,11 @@ type BoardState = {
 ### 9.1 Queen 位置生成
 
 ```text
-输入: n, seed
-输出: n 个满足行列邻接约束的 Queen 位置
+输入: n, rng
+输出: n 个满足行列邻接约束的 Queen 位置（Position[]）
 
 算法: 带随机化的回溯搜索
-1. 随机排列行顺序
+1. 随机排列行顺序（shuffle）
 2. 按行依次尝试随机排列的列
 3. 剪枝: 同列冲突 / 对已放置 Queen 的 8 邻域冲突
 4. 回溯直到找到完整解
@@ -548,90 +535,53 @@ type BoardState = {
 ### 9.2 区域生成
 
 ```text
-输入: n, queenPositions, complexity (0.0-1.0), rng
-输出: 每个格子所属 regionId，每个区域连通且恰含 1 个初始 Queen
+输入: n, queenPositions, rng
+输出: 每个格子所属 regionId，每个区域连通且恰含 1 个 Queen
 
 算法: 多源 BFS 竞争生长
-1. 初始化 n 个区域，各以对应 Queen 位置为种子。regionId = 区域索引。
-   所有种子格加入 FIFO 队列 Q，标记已分配。
-2. 循环直到 Q 为空：
-   a. 从 Q 头部取出格子 (r, c)，其 regionId 为 rid
-   b. 获取 (r, c) 的 4 邻域（上下左右）中未分配的格子
-   c. 对每个未分配邻格 nbr：
-      - 以概率 (1 - complexity) 选择是否偏好同向扩展：
-        偏好模式：若 nbr 与种子 Queen 同行或同列，优先级×3
-        随机模式：所有邻格等权重
-      - 加权随机选择一个邻格，分配 regionId = rid，入队 Q
-   d. 将未选中的邻格放回未分配池（后续轮次可能被其他区域扩展）
-3. 若存在未分配格子（孤立的离散格）：
-   对每个未分配格子，找到相邻的已分配区域中 size 最小的，并入该区域。
-4. 连通性验证：对每个区域做 BFS，若不连通：
-   将不连通的子块合并到相邻的另一个区域，交换等量格子以保持面积平衡。
-   若仍无法修复 → 重新生成（概率极低）。
+1. 初始化 n 个区域，各以对应 Queen 位置为种子。grid[queen] = regionId。
+2. 循环直到所有格子分配完毕：
+   a. 按随机顺序遍历各区域的 BFS 队列
+   b. 每轮每个区域从队列取一个格子，向 4 邻域随机扩展一格
+   c. 以 30% 概率随机选择队列中的非队首格子（增加不规则性）
+3. 所有格子分配完毕 → 返回 Region[]
 ```
 
-complexity 的作用方式：
-- complexity=0.0：严格偏好同行/同列扩展 → 区域呈条状，大部分候选在同一行/列 → L1 链即可求解
-- complexity=0.5：同行/列偏好与随机方向各半 → 区域跨 2-3 行/列 → 需要 L2
-- complexity=1.0：完全随机方向 → 区域高度不规则，候选紧密相邻 → 需要 L3
+区域形状由 BFS 的随机扩展方向和队列选择概率自然产生多样性，不使用显式的 complexity 参数。
 
 ### 9.3 策略步骤控制
 
 ```text
-输入: n, targetSteps, tolerance, maxRetries (默认 30)
-输出: 策略步骤总数匹配 targetSteps 的关卡
+输入: n, targetSteps, seed, maxAttempts (默认 200)
+输出: actualSteps 尽量接近 targetSteps 的关卡，或最佳近似解
 
-参数:
-  tolerance = max(3, floor(targetSteps * 0.10))   // ±3 或 ±10%，取大
-  maxRetries = 30
-  complexity 范围 0.0-1.0
+算法: 随机尝试 + 最优记录
+1. 循环 maxAttempts 次：
+   a. 以 seed + attempt*7919 为种子创建 PRNG（每次尝试使用不同但确定性的种子）
+   b. generateQueenPositions(n, rng)
+   c. randomRegions(n, queens, rng)
+   d. solve(createEmptyBoard(n, regions))
+   e. 若 solve 不完整 → 跳过
+   f. 计算 diff = |actualSteps - targetSteps|
+   g. 若 diff < bestDiff → 更新 bestLevel
+   h. 若 diff === 0 → 精确命中，立即返回（status: 'exact'）
+2. 所有尝试结束：
+   - 若 allowApproximate 且有 bestLevel → 返回近似最优（status: 'approximate'）
+   - 否则 → 生成失败（status: 'failed'）
+3. 返回 GenerationResult，包含 diagnostics（尝试次数、耗时、bestDiff 等）
 
-二分搜索主循环（替代线性增减，防止震荡）:
-  lo = 0.0, hi = 1.0
-  complexity = targetSteps 在 n 对应范围内的归一化位置作为初始猜测
-  例如 n=8, targetSteps=35, range=[18,58] → 初始 complexity = (35-18)/(58-18) ≈ 0.43
-
-  bestLevel = null, bestDiff = Infinity
-
-  for retry in 1..maxRetries:
-    1. queenPositions = generateQueenPositions(n, rng)
-    2. regions = generateRegions(n, queenPositions, complexity, rng)
-    3. board = createEmptyBoard(n, regions)
-    4. result = solve(board)
-
-    5. if !result.complete → 跳过（incomplete 棋盘不参与比较）
-       若连续 5 次 incomplete → 调整 rng seed 重新生成 Queen 布局
-
-    6. steps = result.totalSteps
-       diff = steps - targetSteps
-
-    7. if |diff| ≤ tolerance → 构建 Level 输出，return
-
-    8. if |diff| < bestDiff → 更新 bestLevel, bestDiff
-
-    9. if diff < 0 (steps 太少):
-         lo = complexity           // 需要更高复杂度
-         complexity = (lo + hi) / 2
-       else (steps 太多):
-         hi = complexity           // 需要更低复杂度
-         complexity = (lo + hi) / 2
-
-    10. if hi - lo < 0.02 → 二分收敛但未达 tolerance
-        返回 bestLevel（最接近 targetSteps 的关卡）
-
-  返回 bestLevel 或 null（生成失败）
+关键设计：
+- 不使用复杂度参数或二分搜索来控制步骤数。
+- 依赖大量随机尝试来碰运气命中 targetSteps。
+- 每个 seed 偏移 7919（质数），确保尝试间不重复。
+- 求解器是生成器的前置依赖：生成器通过 solver 验证每一步候选。
 ```
-
-为什么用二分搜索而不是线性增减：
-- 线性 `complexity += step` 容易震荡（低→太少，高→太多，低→太少...）
-- 二分搜索在每次迭代中缩小区间，最多 log2(1/0.02) ≈ 6 次有效迭代即可收敛
-- 不保证一定找到——tolerance 和 bestLevel 回退保证了总能返回最接近的结果
 
 ## 10. 不做什么
 
 MVP 阶段明确不做：
 
-- Level 4 策略（假设型消元/反证法）。
+- 多步假设型消元（在假设分支内继续触发 L2/L3 等深层推导）。
 - 手工设计关卡。
 - 关卡间进度/解锁/星级评分。
 - 时间限制、步数限制。
@@ -647,8 +597,8 @@ MVP 阶段明确不做：
 
 - 关卡生成器可生成 5×5 到 10×10 的合法 Queen 关卡。
 - 生成器可通过 targetSteps 参数控制关卡的策略步骤总数。
-- 生成的关卡有唯一解，且可用 Level 1-3 策略完全求解。
-- 求解器实现全部 7 种策略类型，输出完整策略批次序列。
+- 生成的关卡有唯一解，且可用 6 种策略完全求解。
+- 求解器实现全部 6 种策略类型，输出完整策略批次序列。
 - 玩家可在棋盘上标记 X 和确认 Queen，规则检查实时生效。
 - 求解器面板可逐步骤可视化展示求解过程。
 - 生成器面板可调整 n 和复杂度并生成关卡。

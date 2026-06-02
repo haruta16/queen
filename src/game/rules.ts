@@ -182,18 +182,6 @@ export function applyQueen(board: BoardState, pos: Position): { board: BoardStat
   return { board: b, newX };
 }
 
-/**
- * Place Queen at position WITHOUT propagating X marks.
- * Used by solver's applyBatch so L1 can record the propagation as a separate step.
- */
-export function placeQueen(board: BoardState, pos: Position): BoardState {
-  const b = cloneBoard(board);
-  b.cells[pos.row][pos.col].isQueen = true;
-  b.cells[pos.row][pos.col].isX = false;
-  b.cells[pos.row][pos.col].isWrong = false;
-  return b;
-}
-
 /** Apply X at position. Returns new board. Does not mutate input. */
 export function applyX(board: BoardState, pos: Position): BoardState {
   const b = cloneBoard(board);

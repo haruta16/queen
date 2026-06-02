@@ -25,13 +25,13 @@ Claude Code 开始任何任务前，按以下顺序读取：
 
 开发一个完整的 Queen 解谜游戏 MVP：
 
-> 关卡制 Queen 消元解谜，包含关卡生成器（可按 n 和策略步骤总数生成关卡）、求解器（可视化展示全部 7 种策略的求解步骤序列）、可交互棋盘 UI、美观的视觉表现。
+> 关卡制 Queen 消元解谜，包含关卡生成器（可按 n 和策略步骤总数生成关卡）、求解器（可视化展示全部 6 种策略的求解步骤序列）、可交互棋盘 UI、美观的视觉表现。
 
 MVP 目标：
 
 - 浏览器可玩。
 - 关卡生成器可根据 n（5-10）和 targetSteps（策略步骤总数）生成唯一解关卡。
-- 求解器实现全部 7 种策略类型（L1_Direct / L1_Unique / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Capacity），按 Level 1→2→3 循环执行。
+- 求解器实现全部 6 种策略类型（L1 / L2_Lock1 / L2_Lock2 / L2_Lock3 / L3_Projection / L3_Contradiction），扁平循环执行。
 - 求解器输出完整的 `SolverBatch[]` 序列，每批次标注策略类型。
 - 求解器面板可逐步骤可视化展示求解过程。
 - 玩家可在棋盘上标记 X 和确认 Queen。
@@ -88,13 +88,10 @@ AI 开发时必须理解以下区分，避免混淆：
 
 | 概念 | 含义 | 例子 |
 |---|---|---|
-| 策略等级 (Level) | 分类标签，不是数量 | Level 1、Level 2、Level 3 |
-| 策略类型 (StrategyType) | 7 种具体策略 | L1_Direct、L2_Lock1... |
+| 策略类型 (StrategyType) | 6 种具体策略 | L1、L2_Lock1... |
 | 策略批次/步 (Batch/Step) | 求解器中每次策略执行，可计数 | 第 3 批次：L2_Lock1 消除 4 个 X |
-| 策略步骤总数 (totalSteps) | 最优解中所有批次的个数 | 34 步、52 步 |
-| 策略序列 (strategySequence) | 批次按顺序的策略类型列表 | [L1_Unique, L1_Direct, L1_Unique, L2_Lock1, ...] |
-
-等级是等级（分类），数量是数量（计数）。不要混淆。
+| 策略步骤总数 (totalSteps) | 最优解中所有批次的个数 | 22 步、34 步 |
+| 策略序列 (strategySequence) | 批次按顺序的策略类型列表 | [L1, L1, L2_Lock1, L1, ...] |
 
 ## 开发纪律
 
@@ -114,7 +111,7 @@ AI 开发时必须理解以下区分，避免混淆：
 1. 初始化 Vite + React + TypeScript 项目。
 2. 定义所有类型（types.ts）——包含 SolverBatch、SolverResult 等完整类型。
 3. 实现纯规则函数（rules.ts）+ 测试。
-4. 实现求解器（solver.ts）+ 测试——全部 7 种策略类型，完整主循环。
+4. 实现求解器（solver.ts）+ 测试——全部 6 种策略类型，完整主循环。
 5. 实现关卡生成器（generator.ts）+ 测试——Queen 布局 + 区域生长 + solver 验证。
 6. 实现状态管理（store.ts）。
 7. 构建可玩的 React UI（Board/Cell/Hud/Toolbar）。
@@ -131,5 +128,5 @@ AI 开发时必须理解以下区分，避免混淆：
 ```text
 读取 CLAUDE.md、AGENTS.md、Queen解谜游戏原型设计.md、LinkedIn-Queens-solving-strategies.md、ACCEPTANCE_CRITERIA.md、AI_IMPLEMENTATION_PLAN.md 和 AI_TASK_BACKLOG.md。
 
-按文档实现完整 MVP。使用 Vite + React + TypeScript。核心规则和求解器保持纯函数并添加 Vitest 测试。求解器实现全部 7 种策略类型。实现关卡生成器，支持 n=5-10 和 targetSteps 控制。实现可交互棋盘 UI 和求解器可视化面板。加入几何动感风格的视觉表现和交互动效。运行测试和 build，启动 dev server，并报告本地 URL 与已知限制。
+按文档实现完整 MVP。使用 Vite + React + TypeScript。核心规则和求解器保持纯函数并添加 Vitest 测试。求解器实现全部 6 种策略类型。实现关卡生成器，支持 n=5-10 和 targetSteps 控制。实现可交互棋盘 UI 和求解器可视化面板。加入几何动感风格的视觉表现和交互动效。运行测试和 build，启动 dev server，并报告本地 URL 与已知限制。
 ```

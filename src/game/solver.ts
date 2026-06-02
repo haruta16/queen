@@ -6,10 +6,8 @@ import {
   getCandidatesInRegion,
   findUniqueCandidates,
   applyQueen,
-  placeQueen,
   applyX,
   isBoardComplete,
-  getQueenPositions,
   getRegionIds,
   getAdjacentPositions,
   formatPos,
@@ -20,14 +18,15 @@ function posKey(p: Position): string { return `${p.row},${p.col}`; }
 // Solver — 6 strategy types, tried in order, any hit restarts from first.
 // ============================================================
 
-function posSet(ps: Position[]): Set<string> {
-  return new Set(ps.map(posKey));
-}
-
 function applyBatch(board: BoardState, batch: SolverBatch): BoardState {
   let b = cloneBoard(board);
   for (const x of batch.eliminations) b = applyX(b, x);
-  for (const q of batch.queenConfirmed) b = placeQueen(b, q);
+  for (const q of batch.queenConfirmed) {
+    const cell = b.cells[q.row][q.col];
+    cell.isQueen = true;
+    cell.isX = false;
+    cell.isWrong = false;
+  }
   return b;
 }
 
@@ -37,293 +36,149 @@ function stepL1(board: BoardState, index: number): SolverBatch | null {
   const uniq = findUniqueCandidates(board);
   if (uniq.length === 0) return null;
 
-  const n = board.n;
-
-  // Confirm new Queens on a simulation board
-  let sim = cloneBoard(board);
-  const confirmed: Position[] = [];
-  for (const u of uniq) {
-    if (sim.cells[u.row][u.col].isQueen) continue;
-    sim = placeQueen(sim, u);
-    confirmed.push(u);
-  }
-  if (confirmed.length === 0) return null;
-
-  // Propagate X from ALL Queens (old + new) and dedup
-  const allQueens = getQueenPositions(sim);
-  const elimSet = new Set<string>();
-  const eliminations: Position[] = [];
-
-  for (const q of allQueens) {
-    const result = applyQueen(sim, q);
-    sim = result.board;
-    for (const x of result.newX) {
-      const key = posKey(x);
-      if (!elimSet.has(key)) {
-        elimSet.add(key);
-        eliminations.push(x);
-      }
-    }
-  }
+  // Process one Queen at a time — applyQueen handles both placement and X propagation atomically
+  const target = uniq[0];
+  const { newX } = applyQueen(board, target);
 
   return {
     index,
     strategy: 'L1',
-    eliminations,
-    queenConfirmed: confirmed,
-    description: `确认 ${confirmed.length} Queen，传播消除 ${eliminations.length} X`,
+    eliminations: newX,
+    queenConfirmed: [target],
+    description: `确认 Queen ${formatPos(target)}，传播消除 ${newX.length} X`,
   };
 }
 
-// ── L2 Lock ───────────────────────────────────────────────────────
+// ── L2 Lock — Generalised pigeonhole (k units → k resources) ─────
 
-function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
+type LockDim = 'row' | 'col' | 'region';
+
+/** Enumerate all k‑combinations of `arr`. */
+function* combosK<T>(arr: T[], k: number, start = 0, current: T[] = []): Generator<T[]> {
+  if (current.length === k) { yield [...current]; return; }
+  for (let i = start; i <= arr.length - (k - current.length); i++) {
+    current.push(arr[i]);
+    yield* combosK(arr, k, i + 1, current);
+    current.pop();
+  }
+}
+
+/**
+ * Generalised pigeonhole‑principle elimination.
+ *
+ * If k source units (rows / cols / regions) have all their candidates
+ * confined to exactly k resource units, then those k resources are
+ * "locked" — external candidates in those resources can be eliminated.
+ */
+function lockK(
+  board: BoardState,
+  k: number,
+  source: LockDim,
+  resource: LockDim,
+  index: number,
+): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
 
-  const mk = (eliminations: Position[], reason: string): SolverBatch | null => {
-    if (eliminations.length === 0) return null;
-    return { index, strategy: 'L2_Lock1', eliminations, queenConfirmed: [], description: `L2 单锁定: ${reason} — 消除 ${eliminations.length} X` };
+  const strategy = ([, 'L2_Lock1', 'L2_Lock2', 'L2_Lock3'] as const)[k];
+  const cnLabel = ['', '单', '双', '三'][k];
+
+  const unitIds = (dim: LockDim): number[] =>
+    dim === 'region' ? regionIds : Array.from({ length: n }, (_, i) => i);
+
+  const getCands = (dim: LockDim, id: number): Position[] => {
+    if (dim === 'row') return getCandidatesInRow(board, id);
+    if (dim === 'col') return getCandidatesInCol(board, id);
+    return getCandidatesInRegion(board, id);
   };
 
-  // Region → Row
-  for (const rid of regionIds) {
-    const cands = getCandidatesInRegion(board, rid);
-    if (cands.length < 2) continue;
-    const rows = new Set(cands.map(c => c.row));
-    if (rows.size === 1) {
-      const row = cands[0].row;
-      const elim: Position[] = [];
+  const dimVal = (dim: LockDim, p: Position): number => {
+    if (dim === 'row') return p.row;
+    if (dim === 'col') return p.col;
+    return board.cells[p.row][p.col].regionId;
+  };
+
+  const fmtUnit = (dim: LockDim, id: number): string => {
+    if (dim === 'row') return `第${id}行`;
+    if (dim === 'col') return `第${id}列`;
+    return `区域${id}`;
+  };
+
+  const ids = unitIds(source);
+
+  for (const combo of combosK(ids, k)) {
+    // Collect all candidates from the k source units
+    const allCands: Position[] = [];
+    for (const id of combo) allCands.push(...getCands(source, id));
+    if (allCands.length < k) continue;
+
+    // Check resource‑dimension confinement
+    const resVals = new Set(allCands.map(c => dimVal(resource, c)));
+    if (resVals.size !== k) continue;
+
+    // k source units → k resources — eliminate external candidates
+    const eliminations: Position[] = [];
+    const elimSet = new Set<string>();
+    const srcSet = new Set(combo);
+
+    for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
-        const cell = board.cells[row][c];
-        if (cell.regionId !== rid && !cell.isQueen && !cell.isX) elim.push({ row, col: c });
+        const cell = board.cells[r][c];
+        if (cell.isQueen || cell.isX || cell.isWrong) continue;
+        if (!resVals.has(dimVal(resource, { row: r, col: c }))) continue;
+        if (srcSet.has(dimVal(source, { row: r, col: c }))) continue;
+        const key = `${r},${c}`;
+        if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row: r, col: c }); }
       }
-      const b = mk(elim, `区域${rid}候选全在第${row}行 → 锁定该行`);
-      if (b) return b;
+    }
+
+    if (eliminations.length > 0) {
+      const srcDesc = combo.map(id => fmtUnit(source, id)).join('、');
+      const resDesc = Array.from(resVals).map(v => fmtUnit(resource, v)).join('、');
+      return {
+        index,
+        strategy: strategy as StrategyType,
+        eliminations,
+        queenConfirmed: [],
+        description: `L2 ${cnLabel}锁定 (${source}→${resource}): ${srcDesc}独占 ${resDesc} — 消除 ${eliminations.length} X`,
+      };
     }
   }
 
-  // Region → Column
-  for (const rid of regionIds) {
-    const cands = getCandidatesInRegion(board, rid);
-    if (cands.length < 2) continue;
-    const cols = new Set(cands.map(c => c.col));
-    if (cols.size === 1) {
-      const col = cands[0].col;
-      const elim: Position[] = [];
-      for (let r = 0; r < n; r++) {
-        const cell = board.cells[r][col];
-        if (cell.regionId !== rid && !cell.isQueen && !cell.isX) elim.push({ row: r, col });
-      }
-      const b = mk(elim, `区域${rid}候选全在第${col}列 → 锁定该列`);
-      if (b) return b;
-    }
-  }
+  return null;
+}
 
-  // Row → Region
-  for (let r = 0; r < n; r++) {
-    const cands = getCandidatesInRow(board, r);
-    if (cands.length < 2) continue;
-    const rids = new Set(cands.map(c => board.cells[c.row][c.col].regionId));
-    if (rids.size === 1) {
-      const rid = rids.values().next().value as number;
-      const elim: Position[] = [];
-      for (let rr = 0; rr < n; rr++)
-        for (let cc = 0; cc < n; cc++) {
-          const cell = board.cells[rr][cc];
-          if (cell.regionId === rid && rr !== r && !cell.isQueen && !cell.isX) elim.push({ row: rr, col: cc });
-        }
-      const b = mk(elim, `第${r}行候选全在区域${rid} → 锁定该区域`);
-      if (b) return b;
-    }
-  }
+/** All 6 valid (source, resource) pairs where source ≠ resource. */
+const LOCK_PAIRS: [LockDim, LockDim][] = [
+  ['region', 'row'],
+  ['region', 'col'],
+  ['row',    'region'],
+  ['col',    'region'],
+  ['row',    'col'],
+  ['col',    'row'],
+];
 
-  // Column → Region
-  for (let c = 0; c < n; c++) {
-    const cands = getCandidatesInCol(board, c);
-    if (cands.length < 2) continue;
-    const rids = new Set(cands.map(p => board.cells[p.row][p.col].regionId));
-    if (rids.size === 1) {
-      const rid = rids.values().next().value as number;
-      const elim: Position[] = [];
-      for (let rr = 0; rr < n; rr++)
-        for (let cc = 0; cc < n; cc++) {
-          const cell = board.cells[rr][cc];
-          if (cell.regionId === rid && cc !== c && !cell.isQueen && !cell.isX) elim.push({ row: rr, col: cc });
-        }
-      const b = mk(elim, `第${c}列候选全在区域${rid} → 锁定该区域`);
-      if (b) return b;
-    }
+function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
+  for (const [src, res] of LOCK_PAIRS) {
+    const batch = lockK(board, 1, src, res, index);
+    if (batch) return batch;
   }
-
   return null;
 }
 
 function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
-  const n = board.n;
-  const regionIds = getRegionIds(board);
-
-  const mk = (eliminations: Position[], reason: string): SolverBatch | null => {
-    if (eliminations.length === 0) return null;
-    return { index, strategy: 'L2_Lock2', eliminations, queenConfirmed: [], description: `L2 双锁定: ${reason} — 消除 ${eliminations.length} X` };
-  };
-
-  // 2 Rows → 2 Cols
-  for (let r1 = 0; r1 < n; r1++) {
-    for (let r2 = r1 + 1; r2 < n; r2++) {
-      const cands1 = getCandidatesInRow(board, r1);
-      const cands2 = getCandidatesInRow(board, r2);
-      if (cands1.length === 0 || cands2.length === 0) continue;
-      const cols = new Set([...cands1, ...cands2].map(c => c.col));
-      if (cols.size === 2) {
-        const colArr = Array.from(cols);
-        const elim: Position[] = [];
-        for (let r = 0; r < n; r++) {
-          if (r === r1 || r === r2) continue;
-          for (const col of colArr) {
-            const cell = board.cells[r][col];
-            if (!cell.isQueen && !cell.isX) elim.push({ row: r, col });
-          }
-        }
-        const b = mk(elim, `第${r1}、${r2}行候选仅占${colArr.join(',')}列`);
-        if (b) return b;
-      }
-    }
+  for (const [src, res] of LOCK_PAIRS) {
+    const batch = lockK(board, 2, src, res, index);
+    if (batch) return batch;
   }
-
-  // 2 Cols → 2 Rows
-  for (let c1 = 0; c1 < n; c1++) {
-    for (let c2 = c1 + 1; c2 < n; c2++) {
-      const cands1 = getCandidatesInCol(board, c1);
-      const cands2 = getCandidatesInCol(board, c2);
-      if (cands1.length === 0 || cands2.length === 0) continue;
-      const rows = new Set([...cands1, ...cands2].map(c => c.row));
-      if (rows.size === 2) {
-        const rowArr = Array.from(rows);
-        const elim: Position[] = [];
-        for (let c = 0; c < n; c++) {
-          if (c === c1 || c === c2) continue;
-          for (const row of rowArr) {
-            const cell = board.cells[row][c];
-            if (!cell.isQueen && !cell.isX) elim.push({ row, col: c });
-          }
-        }
-        const b = mk(elim, `第${c1}、${c2}列候选仅占${rowArr.join(',')}行`);
-        if (b) return b;
-      }
-    }
-  }
-
-  // 2 Regions → 2 Rows
-  for (let i = 0; i < regionIds.length; i++) {
-    for (let j = i + 1; j < regionIds.length; j++) {
-      const rid1 = regionIds[i], rid2 = regionIds[j];
-      const cands1 = getCandidatesInRegion(board, rid1);
-      const cands2 = getCandidatesInRegion(board, rid2);
-      if (cands1.length === 0 || cands2.length === 0) continue;
-      const rows = new Set([...cands1, ...cands2].map(c => c.row));
-      if (rows.size === 2) {
-        const rowArr = Array.from(rows);
-        const elim: Position[] = [];
-        for (const row of rowArr) {
-          for (let c = 0; c < n; c++) {
-            const cell = board.cells[row][c];
-            if (cell.regionId !== rid1 && cell.regionId !== rid2 && !cell.isQueen && !cell.isX) elim.push({ row, col: c });
-          }
-        }
-        const b = mk(elim, `区域${rid1}、${rid2}候选仅占${rowArr.join(',')}行`);
-        if (b) return b;
-      }
-    }
-  }
-
-  // 2 Regions → 2 Cols
-  for (let i = 0; i < regionIds.length; i++) {
-    for (let j = i + 1; j < regionIds.length; j++) {
-      const rid1 = regionIds[i], rid2 = regionIds[j];
-      const cands1 = getCandidatesInRegion(board, rid1);
-      const cands2 = getCandidatesInRegion(board, rid2);
-      if (cands1.length === 0 || cands2.length === 0) continue;
-      const cols = new Set([...cands1, ...cands2].map(c => c.col));
-      if (cols.size === 2) {
-        const colArr = Array.from(cols);
-        const elim: Position[] = [];
-        for (const col of colArr) {
-          for (let r = 0; r < n; r++) {
-            const cell = board.cells[r][col];
-            if (cell.regionId !== rid1 && cell.regionId !== rid2 && !cell.isQueen && !cell.isX) elim.push({ row: r, col });
-          }
-        }
-        const b = mk(elim, `区域${rid1}、${rid2}候选仅占${colArr.join(',')}列`);
-        if (b) return b;
-      }
-    }
-  }
-
   return null;
 }
 
 function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
-  const n = board.n;
-
-  const mk = (eliminations: Position[], reason: string): SolverBatch | null => {
-    if (eliminations.length === 0) return null;
-    return { index, strategy: 'L2_Lock3', eliminations, queenConfirmed: [], description: `L2 三锁定: ${reason} — 消除 ${eliminations.length} X` };
-  };
-
-  function* combos3<T>(arr: T[]): Generator<T[]> {
-    for (let i = 0; i < arr.length; i++)
-      for (let j = i + 1; j < arr.length; j++)
-        for (let k = j + 1; k < arr.length; k++)
-          yield [arr[i], arr[j], arr[k]];
+  for (const [src, res] of LOCK_PAIRS) {
+    const batch = lockK(board, 3, src, res, index);
+    if (batch) return batch;
   }
-
-  // 3 Rows → 3 Cols
-  const rows = Array.from({ length: n }, (_, i) => i);
-  for (const [r1, r2, r3] of combos3(rows)) {
-    const cands1 = getCandidatesInRow(board, r1);
-    const cands2 = getCandidatesInRow(board, r2);
-    const cands3 = getCandidatesInRow(board, r3);
-    if (cands1.length === 0 || cands2.length === 0 || cands3.length === 0) continue;
-    const cols = new Set([...cands1, ...cands2, ...cands3].map(c => c.col));
-    if (cols.size === 3) {
-      const colArr = Array.from(cols);
-      const elim: Position[] = [];
-      for (let r = 0; r < n; r++) {
-        if (r === r1 || r === r2 || r === r3) continue;
-        for (const col of colArr) {
-          const cell = board.cells[r][col];
-          if (!cell.isQueen && !cell.isX) elim.push({ row: r, col });
-        }
-      }
-      const b = mk(elim, `第${r1}、${r2}、${r3}行候选仅占${colArr.length}列`);
-      if (b) return b;
-    }
-  }
-
-  // 3 Cols → 3 Rows
-  const cols = Array.from({ length: n }, (_, i) => i);
-  for (const [c1, c2, c3] of combos3(cols)) {
-    const cands1 = getCandidatesInCol(board, c1);
-    const cands2 = getCandidatesInCol(board, c2);
-    const cands3 = getCandidatesInCol(board, c3);
-    if (cands1.length === 0 || cands2.length === 0 || cands3.length === 0) continue;
-    const rowsSet = new Set([...cands1, ...cands2, ...cands3].map(c => c.row));
-    if (rowsSet.size === 3) {
-      const rowArr = Array.from(rowsSet);
-      const elim: Position[] = [];
-      for (let c = 0; c < n; c++) {
-        if (c === c1 || c === c2 || c === c3) continue;
-        for (const row of rowArr) {
-          const cell = board.cells[row][c];
-          if (!cell.isQueen && !cell.isX) elim.push({ row, col: c });
-        }
-      }
-      const b = mk(elim, `第${c1}、${c2}、${c3}列候选仅占${rowArr.length}行`);
-      if (b) return b;
-    }
-  }
-
   return null;
 }
 
