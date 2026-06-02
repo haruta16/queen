@@ -1,11 +1,11 @@
 // ============================================================
-// Core types for Queen Elimination Puzzle
+// Queen 消元解谜 — 核心类型定义
 // ============================================================
 
-/** Board coordinate */
+/** 棋盘坐标 */
 export type Position = { row: number; col: number };
 
-/** Single cell state */
+/** 单格状态 */
 export type CellState = {
   regionId: number;
   isQueen: boolean;
@@ -13,13 +13,13 @@ export type CellState = {
   isWrong: boolean;
 };
 
-/** Color region — a connected set of cells sharing one Queen */
+/** 颜色区域 — 共享一个 Queen 的连通格子集合 */
 export type Region = {
   id: number;
   cells: Position[];
 };
 
-/** 6 concrete strategy types. */
+/** 6 种具体策略类型 */
 export type StrategyType =
   | 'L1'
   | 'L2_Lock1'
@@ -28,7 +28,7 @@ export type StrategyType =
   | 'L3_Projection'
   | 'L3_Contradiction';
 
-/** One solver batch — a single strategy execution step */
+/** 求解器的一个批次 — 单次策略执行的产出 */
 export type SolverBatch = {
   index: number;
   strategy: StrategyType;
@@ -37,7 +37,7 @@ export type SolverBatch = {
   description: string;
 };
 
-/** Complete solver output */
+/** 求解器完整输出 */
 export type SolverResult = {
   complete: boolean;
   batches: SolverBatch[];
@@ -45,7 +45,7 @@ export type SolverResult = {
   strategyTypesUsed: StrategyType[];
 };
 
-/** Serializable level data */
+/** 可序列化的关卡数据 */
 export type Level = {
   id: string;
   n: number;
@@ -58,7 +58,7 @@ export type Level = {
   solverResult: SolverResult;
 };
 
-/** Generator parameters */
+/** 生成器参数 */
 export type GeneratorParams = {
   n: number;
   targetSteps: number;
@@ -67,10 +67,10 @@ export type GeneratorParams = {
   allowApproximate?: boolean;
 };
 
-/** Generator search outcome */
+/** 生成器搜索结论 */
 export type GenerationStatus = 'exact' | 'approximate' | 'failed';
 
-/** Generator diagnostics surfaced to UI */
+/** 生成器诊断信息，展示到 UI */
 export type GenerationDiagnostics = {
   status: GenerationStatus;
   attempts: number;
@@ -88,23 +88,23 @@ export type GenerationDiagnostics = {
   allowApproximate: boolean;
 };
 
-/** Full generator result */
+/** 生成器完整结果 */
 export type GenerationResult = {
   status: GenerationStatus;
   level: Level | null;
   diagnostics: GenerationDiagnostics;
 };
 
-/** Player board state */
+/** 玩家棋盘状态 */
 export type BoardState = {
   n: number;
   cells: CellState[][];
 };
 
-/** Seeded PRNG function type */
+/** 种子化伪随机数生成器函数类型 */
 export type RNG = () => number;
 
-/** Operation history entry for undo/redo */
+/** 操作历史条目，用于撤销/重做 */
 export type OpHistoryEntry = {
   pos: Position;
   wasX: boolean;

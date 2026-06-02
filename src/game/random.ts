@@ -1,8 +1,8 @@
 import { RNG } from './types';
 
 /**
- * Mulberry32 — a fast, high-quality 32-bit seeded PRNG.
- * Given the same seed, produces the same sequence of numbers in [0, 1).
+ * Mulberry32 — 快速高质量的 32 位种子化伪随机数生成器。
+ * 相同种子产生相同的 [0, 1) 序列。
  */
 export function createRNG(seed: number): RNG {
   let state = seed | 0;
@@ -14,7 +14,7 @@ export function createRNG(seed: number): RNG {
   };
 }
 
-/** Fisher-Yates shuffle using given rng */
+/** Fisher-Yates 洗牌，使用指定随机数生成器 */
 export function shuffle<T>(arr: T[], rng: RNG): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
@@ -22,9 +22,4 @@ export function shuffle<T>(arr: T[], rng: RNG): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
-}
-
-/** Pick a random integer in [min, max] inclusive */
-export function randInt(rng: RNG, min: number, max: number): number {
-  return Math.floor(rng() * (max - min + 1)) + min;
 }

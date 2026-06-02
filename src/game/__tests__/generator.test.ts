@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  generateLevel,
   generateLevelResult,
   generateQueenPositions,
 } from '../generator';
@@ -49,9 +48,10 @@ describe('generateQueenPositions', () => {
   });
 });
 
-describe('generateLevel', () => {
+describe('generateLevelResult — level output', () => {
   it('generates a complete, solvable 5×5 level', () => {
-    const level = generateLevel({ n: 5, targetSteps: 15, seed: 42 });
+    const result = generateLevelResult({ n: 5, targetSteps: 15, seed: 42, allowApproximate: true });
+    const level = result.level;
     expect(level).not.toBeNull();
     expect(level!.n).toBe(5);
     expect(level!.regions).toHaveLength(5);
@@ -61,8 +61,10 @@ describe('generateLevel', () => {
   }, 15000);
 
   it('is deterministic with same seed', () => {
-    const l1 = generateLevel({ n: 5, targetSteps: 15, seed: 42 });
-    const l2 = generateLevel({ n: 5, targetSteps: 15, seed: 42 });
+    const r1 = generateLevelResult({ n: 5, targetSteps: 15, seed: 42, allowApproximate: true });
+    const r2 = generateLevelResult({ n: 5, targetSteps: 15, seed: 42, allowApproximate: true });
+    const l1 = r1.level;
+    const l2 = r2.level;
     expect(l1).not.toBeNull();
     expect(l2).not.toBeNull();
     expect(l1!.actualSteps).toBe(l2!.actualSteps);
@@ -70,7 +72,8 @@ describe('generateLevel', () => {
   }, 15000);
 
   it('level data contains full strategy sequence', () => {
-    const level = generateLevel({ n: 5, targetSteps: 15, seed: 42 });
+    const result = generateLevelResult({ n: 5, targetSteps: 15, seed: 42, allowApproximate: true });
+    const level = result.level;
     expect(level).not.toBeNull();
     expect(level!.strategySequence.length).toBeGreaterThan(0);
     expect(level!.strategySequence).toEqual(
@@ -81,8 +84,8 @@ describe('generateLevel', () => {
   it('generates levels for n=7', () => {
     let level = null;
     for (const seed of [100, 200, 300, 400, 500, 600, 700]) {
-      level = generateLevel({ n: 7, targetSteps: 30, seed, allowApproximate: true });
-      if (level) break;
+      const result = generateLevelResult({ n: 7, targetSteps: 30, seed, allowApproximate: true });
+      if (result.level) { level = result.level; break; }
     }
     expect(level).not.toBeNull();
     expect(level!.n).toBe(7);
@@ -92,8 +95,8 @@ describe('generateLevel', () => {
   it('generates levels for n=8', () => {
     let level = null;
     for (const seed of [300, 400, 500, 600, 700, 800, 900]) {
-      level = generateLevel({ n: 8, targetSteps: 30, seed, allowApproximate: true });
-      if (level) break;
+      const result = generateLevelResult({ n: 8, targetSteps: 30, seed, allowApproximate: true });
+      if (result.level) { level = result.level; break; }
     }
     expect(level).not.toBeNull();
     expect(level!.n).toBe(8);

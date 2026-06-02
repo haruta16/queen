@@ -1,7 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useGameStore } from '../game/store';
-import { applyBatchesUpTo } from '../game/solver';
-import { findUniqueCandidates, createEmptyBoard, isBoardComplete } from '../game/rules';
+import { findUniqueCandidates, isBoardComplete } from '../game/rules';
 import Cell from './Cell';
 
 const REGION_COLORS = [
@@ -60,14 +59,15 @@ export default function Board() {
 
   const cellSize = n > 0 ? getCellSize(n) : 48;
 
+  const getSolverBoardAtStep = useGameStore(s => s.getSolverBoardAtStep);
+
   const displayBoard = useMemo(() => {
     if (!board || !level) return null;
     if (solverResult && solverStepIndex > 0) {
-      const emptyBoard = createEmptyBoard(level.n, level.regions);
-      return applyBatchesUpTo(emptyBoard, solverResult.batches, solverStepIndex);
+      return getSolverBoardAtStep(solverStepIndex) ?? board;
     }
     return board;
-  }, [board, level, solverResult, solverStepIndex]);
+  }, [board, level, solverResult, solverStepIndex, getSolverBoardAtStep]);
 
   const uniqueCandidates = useMemo(() => {
     if (!displayBoard) return new Set<string>();

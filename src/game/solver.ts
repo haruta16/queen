@@ -12,12 +12,14 @@ import {
   getAdjacentPositions,
   formatPos,
 } from './rules';
+
 function posKey(p: Position): string { return `${p.row},${p.col}`; }
 
 // ============================================================
-// Solver — 6 strategy types, tried in order, any hit restarts from first.
+// 求解器 — 6 种策略扁平循环，任意命中回到第一种重试
 // ============================================================
 
+/** 将一个批次的产出应用到棋盘上 */
 function applyBatch(board: BoardState, batch: SolverBatch): BoardState {
   let b = cloneBoard(board);
   for (const x of batch.eliminations) b = applyX(b, x);
@@ -30,13 +32,13 @@ function applyBatch(board: BoardState, batch: SolverBatch): BoardState {
   return b;
 }
 
-// ── L1 (Direct + Unique) ──────────────────────────────────────────
+// ── L1 直接确认 + 唯一候选 ──────────────────────────────────────
 
 function stepL1(board: BoardState, index: number): SolverBatch | null {
   const uniq = findUniqueCandidates(board);
   if (uniq.length === 0) return null;
 
-  // Process one Queen at a time — applyQueen handles both placement and X propagation atomically
+  // 每次只处理一个 Queen — applyQueen 原子化搞定放置和传播
   const target = uniq[0];
   const { newX } = applyQueen(board, target);
 
@@ -49,11 +51,11 @@ function stepL1(board: BoardState, index: number): SolverBatch | null {
   };
 }
 
-// ── L2 Lock — Generalised pigeonhole (k units → k resources) ─────
+// ── L2 锁定 — 广义鸽巢原理（k 个单位 → k 个资源） ──────────────
 
 type LockDim = 'row' | 'col' | 'region';
 
-/** Enumerate all k‑combinations of `arr`. */
+/** 枚举 arr 中所有 k 组合 */
 function* combosK<T>(arr: T[], k: number, start = 0, current: T[] = []): Generator<T[]> {
   if (current.length === k) { yield [...current]; return; }
   for (let i = start; i <= arr.length - (k - current.length); i++) {
@@ -64,11 +66,10 @@ function* combosK<T>(arr: T[], k: number, start = 0, current: T[] = []): Generat
 }
 
 /**
- * Generalised pigeonhole‑principle elimination.
+ * 广义鸽巢原理消除。
  *
- * If k source units (rows / cols / regions) have all their candidates
- * confined to exactly k resource units, then those k resources are
- * "locked" — external candidates in those resources can be eliminated.
+ * 如果 k 个源单位（行/列/区域）的所有候选格局限在恰好 k 个资源单位中，
+ * 则这 k 个资源被"锁定"——这些资源中的外来候选可被消除。
  */
 function lockK(
   board: BoardState,
@@ -107,16 +108,16 @@ function lockK(
   const ids = unitIds(source);
 
   for (const combo of combosK(ids, k)) {
-    // Collect all candidates from the k source units
+    // 收集 k 个源单位的所有候选
     const allCands: Position[] = [];
     for (const id of combo) allCands.push(...getCands(source, id));
     if (allCands.length < k) continue;
 
-    // Check resource‑dimension confinement
+    // 检查是否局限在恰好 k 个资源维度
     const resVals = new Set(allCands.map(c => dimVal(resource, c)));
     if (resVals.size !== k) continue;
 
-    // k source units → k resources — eliminate external candidates
+    // k 个源单位 → k 个资源 — 消除外部候选
     const eliminations: Position[] = [];
     const elimSet = new Set<string>();
     const srcSet = new Set(combo);
@@ -148,7 +149,7 @@ function lockK(
   return null;
 }
 
-/** All 6 valid (source, resource) pairs where source ≠ resource. */
+/** 全部 6 组有效的 (source, resource) 配对，其中 source ≠ resource */
 const LOCK_PAIRS: [LockDim, LockDim][] = [
   ['region', 'row'],
   ['region', 'col'],
@@ -182,8 +183,9 @@ function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
   return null;
 }
 
-// ── L3 Projection & Contradiction ─────────────────────────────────
+// ── L3 投影与矛盾 ──────────────────────────────────────────────
 
+/** 收集所有候选数 ≥2 的行/列/区域 */
 function collectCandidateUnits(board: BoardState, n: number): { candidates: Position[]; label: string }[] {
   const regionIds = getRegionIds(board);
   const units: { candidates: Position[]; label: string }[] = [];
@@ -204,6 +206,7 @@ function collectCandidateUnits(board: BoardState, n: number): { candidates: Posi
   return units;
 }
 
+/** 计算将某个候选格确认为 Queen 后会消除的所有格子集合 */
 function candidateProjectionSet(board: BoardState, n: number, cand: Position): Set<string> {
   const proj = new Set<string>();
   const rid = board.cells[cand.row][cand.col].regionId;
@@ -220,6 +223,10 @@ function candidateProjectionSet(board: BoardState, n: number, cand: Position): S
   return proj;
 }
 
+/**
+ * L3 投影：对某个单位的候选集，取每个候选的投影集合的交集。
+ * 交集内的格子无论选哪个候选都会被消除 → 可以安全标 X。
+ */
 function stepL3Projection(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
 
@@ -252,6 +259,10 @@ function stepL3Projection(board: BoardState, index: number): SolverBatch | null 
   return null;
 }
 
+/**
+ * L3 矛盾法：假设某个候选是 Queen → 单步投影 → 检查是否有行/列/区域候选归零。
+ * 如果归零 → 矛盾 → 该候选一定不是 Queen → 标 X。
+ */
 function stepL3Contradiction(board: BoardState, index: number): SolverBatch | null {
   const n = board.n;
   const regionIds = getRegionIds(board);
@@ -293,8 +304,9 @@ function stepL3Contradiction(board: BoardState, index: number): SolverBatch | nu
   return null;
 }
 
-// ── Main solver ───────────────────────────────────────────────────
+// ── 主循环 ──────────────────────────────────────────────────────
 
+/** 策略列表，按尝试顺序排列 */
 const STRATEGIES = [
   stepL1,
   stepL2Lock1,
@@ -304,6 +316,7 @@ const STRATEGIES = [
   stepL3Contradiction,
 ];
 
+/** 求解主入口：返回完整 SolverResult */
 export function solve(board: BoardState): SolverResult {
   const batches: SolverBatch[] = [];
   let currentBoard = cloneBoard(board);
@@ -322,7 +335,7 @@ export function solve(board: BoardState): SolverResult {
         batches.push(batch);
         currentBoard = applyBatch(currentBoard, batch);
         produced = true;
-        break;
+        break;  // 任意命中，回到第一种策略重新开始
       }
     }
 
@@ -342,6 +355,7 @@ function buildResult(complete: boolean, batches: SolverBatch[]): SolverResult {
   };
 }
 
+/** 将批次序列应用到指定步骤，返回中间棋盘状态 */
 export function applyBatchesUpTo(board: BoardState, batches: SolverBatch[], step: number): BoardState {
   let b = cloneBoard(board);
   for (let i = 0; i < Math.min(step, batches.length); i++) b = applyBatch(b, batches[i]);

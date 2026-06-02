@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   BoardState, Level, SolverResult, OpHistoryEntry, GeneratorParams, GenerationResult,
+  Region, Position,
 } from './types';
 import {
   createEmptyBoard, applyX, removeX, applyQueen,
@@ -8,14 +9,12 @@ import {
   isBoardComplete,
   formatPos,
 } from './rules';
-import { solve } from './solver';
+import { solve, applyBatchesUpTo } from './solver';
 import { generateLevelResult } from './generator';
 
 // ============================================================
-// Game Store — zustand
+// 游戏状态 — zustand store
 // ============================================================
-
-export type InteractionMode = 'markX' | 'confirmQueen';
 
 export type GeneratorDraft = {
   n: number;
@@ -26,64 +25,57 @@ export type GeneratorDraft = {
 };
 
 interface GameState {
-  // Current level
+  // 当前关卡
   level: Level | null;
 
-  // Player board state
+  // 玩家棋盘状态
   board: BoardState | null;
 
-  // Interaction mode
-  mode: InteractionMode;
-  setMode: (mode: InteractionMode) => void;
-
-  // Operation history for undo/redo (X marks only)
+  // 操作历史（仅 X 标记，用于撤销/重做）
   xHistory: OpHistoryEntry[];
   redoStack: OpHistoryEntry[];
 
-  // Solver display state
+  // 求解器展示状态
   solverResult: SolverResult | null;
   solverStepIndex: number;
   solverPanelOpen: boolean;
 
-  // Generator state
-  generatorPanelOpen: boolean;
+  // 生成器状态
   isGenerating: boolean;
   generationError: string | null;
   generatorDraft: GeneratorDraft;
   lastGeneratedLevel: Level | null;
   lastGenerationResult: GenerationResult | null;
 
-  // UI feedback
+  // UI 反馈
   message: string | null;
   messageType: 'info' | 'error' | 'success';
 
-  // Actions
+  // 操作
   loadLevel: (level: Level) => void;
   toggleX: (row: number, col: number) => void;
   confirmQueen: (row: number, col: number) => string | null;
   undoX: () => void;
   redoX: () => void;
   resetBoard: () => void;
-  requestSolve: () => void;
   setSolverStep: (index: number) => void;
   setSolverPanelOpen: (open: boolean) => void;
   requestGenerate: (params: GeneratorParams) => Promise<GenerationResult>;
   setGeneratorDraft: (patch: Partial<GeneratorDraft>) => void;
   enterGeneratedLevel: () => boolean;
-  setGeneratorPanelOpen: (open: boolean) => void;
   clearMessage: () => void;
+  getSolverBoardAtStep: (stepIndex: number) => BoardState | null;
+  importLevelFromJson: (file: File) => Promise<{ level: Level | null; error: string | null }>;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
   level: null,
   board: null,
-  mode: 'markX',
   xHistory: [],
   redoStack: [],
   solverResult: null,
   solverStepIndex: 0,
   solverPanelOpen: false,
-  generatorPanelOpen: false,
   isGenerating: false,
   generationError: null,
   generatorDraft: {
@@ -98,8 +90,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   message: null,
   messageType: 'info',
 
-  setMode: (mode) => set({ mode }),
-
   loadLevel: (level) => {
     const board = createEmptyBoard(level.n, level.regions);
     set({
@@ -109,7 +99,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       redoStack: [],
       solverResult: level.solverResult,
       solverStepIndex: 0,
-      solverPanelOpen: false,
       message: `关卡已加载: ${level.n}×${level.n} / ${level.actualSteps}步`,
       messageType: 'info',
     });
@@ -120,10 +109,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!board) return;
 
     const cell = board.cells[row][col];
-    if (cell.isQueen || cell.isWrong) return; // revealed cells are final
+    // 已翻面的格子不可再操作
+    if (cell.isQueen || cell.isWrong) return;
 
     if (cell.isX) {
-      // Remove X
+      // 移除 X
       const newBoard = removeX(board, { row, col });
       set({
         board: newBoard,
@@ -132,7 +122,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         message: null,
       });
     } else {
-      // Place X
+      // 放置 X
       const newBoard = applyX(board, { row, col });
       set({
         board: newBoard,
@@ -164,21 +154,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       return null;
     }
 
-    // Apply Queen
+    // 放置 Queen
     const { board: newBoard } = applyQueen(board, { row, col });
 
-    // Check completion
+    // 检查是否完成
     const complete = isBoardComplete(newBoard);
 
     set({
       board: newBoard,
-      xHistory: [], // Queen reveal changes propagated board; keep history simple
+      // Queen 确认后棋盘大面积变化，清空操作历史
+      xHistory: [],
       redoStack: [],
       message: complete ? '恭喜！所有 Queen 已就位！' : `Queen 确认: ${formatPos({ row, col })}`,
       messageType: complete ? 'success' : 'info',
     });
 
-    return null; // no error
+    return null;
   },
 
   undoX: () => {
@@ -190,12 +181,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     let newBoard: BoardState;
     if (lastOp.wasX) {
-      // The cell WAS X before we toggled it (meaning we removed the X)
-      // Undo = put the X back
+      // 该格之前是 X（操作把它移除了）→ 撤销就是放回 X
       newBoard = applyX(board, lastOp.pos);
     } else {
-      // The cell was NOT X before (meaning we placed an X)
-      // Undo = remove the X
+      // 该格之前不是 X（操作放置了 X）→ 撤销就是移除 X
       newBoard = removeX(board, lastOp.pos);
     }
 
@@ -216,10 +205,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     let newBoard: BoardState;
     if (op.wasX) {
-      // Redo = remove X again (undo removed it)
+      // 重做 = 再次移除 X（撤销把它恢复了）
       newBoard = removeX(board, op.pos);
     } else {
-      // Redo = place X again
+      // 重做 = 再次放置 X
       newBoard = applyX(board, op.pos);
     }
 
@@ -242,18 +231,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       solverStepIndex: 0,
       message: '棋盘已重置',
       messageType: 'info',
-    });
-  },
-
-  requestSolve: () => {
-    const { board, level } = get();
-    if (!board || !level) return;
-
-    const result = solve(createEmptyBoard(level.n, level.regions));
-    set({
-      solverResult: result,
-      solverStepIndex: 0,
-      solverPanelOpen: true,
     });
   },
 
@@ -283,6 +260,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
 
     try {
+      // setTimeout(0) 让生成不阻塞 UI 渲染
       const result = await new Promise<GenerationResult>((resolve) => {
         setTimeout(() => {
           resolve(generateLevelResult({
@@ -362,7 +340,101 @@ export const useGameStore = create<GameState>((set, get) => ({
     return true;
   },
 
-  setGeneratorPanelOpen: (open) => set({ generatorPanelOpen: open }),
-
   clearMessage: () => set({ message: null }),
+
+  // 根据求解器步骤索引重建对应步骤的棋盘状态
+  getSolverBoardAtStep: (stepIndex) => {
+    const { level, solverResult } = get();
+    if (!level || !solverResult || stepIndex <= 0) return null;
+    const emptyBoard = createEmptyBoard(level.n, level.regions);
+    return applyBatchesUpTo(emptyBoard, solverResult.batches, stepIndex);
+  },
+
+  // 从 JSON 文件导入关卡（兼容 LinkedIn Queens 格式）
+  importLevelFromJson: async (file) => {
+    try {
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('文件读取失败'));
+        reader.readAsText(file);
+      });
+
+      const json = JSON.parse(text);
+      const n: number = json.size;
+      const colorMasks: number[] = json.colorMasks;
+      const cows: { x: number; y: number }[] = json.cows;
+
+      if (!Number.isFinite(n) || n < 2 || !Array.isArray(colorMasks) || colorMasks.length !== n * n) {
+        return { level: null, error: `无效的关卡数据: size=${n}, colorMasks长度=${colorMasks?.length}` };
+      }
+
+      // 按 mask 值分组成区域
+      const maskToCells = new Map<number, Position[]>();
+      for (let i = 0; i < colorMasks.length; i++) {
+        const row = Math.floor(i / n);
+        const col = i % n;
+        const mask = colorMasks[i];
+        if (!maskToCells.has(mask)) maskToCells.set(mask, []);
+        maskToCells.get(mask)!.push({ row, col });
+      }
+
+      const regions: Region[] = [...maskToCells.entries()].map(([_mask, cells], idx) => ({
+        id: idx,
+        cells,
+      }));
+
+      // cows 格式: x=col, y=row
+      const solution: Position[] = cows.map(c => ({ row: c.y, col: c.x }));
+
+      const board = createEmptyBoard(n, regions);
+      const solverResult = solve(board);
+
+      if (!solverResult.complete) {
+        return { level: null, error: '导入的关卡无法被求解器完全求解' };
+      }
+
+      const level: Level = {
+        id: `import-${json.seed || json.LevelID || Date.now()}`,
+        n,
+        regions,
+        solution,
+        seed: json.seed ?? json.LevelID ?? 0,
+        targetSteps: solverResult.totalSteps,
+        actualSteps: solverResult.totalSteps,
+        strategySequence: solverResult.batches.map(b => b.strategy),
+        solverResult,
+      };
+
+      set({
+        lastGeneratedLevel: level,
+        lastGenerationResult: {
+          status: 'exact',
+          level,
+          diagnostics: {
+            status: 'exact',
+            attempts: 1,
+            maxAttempts: 1,
+            elapsedMs: 0,
+            seed: level.seed,
+            targetSteps: level.targetSteps,
+            bestActualSteps: level.actualSteps,
+            bestDiff: 0,
+            selectedAttempt: 1,
+            selectedAttemptSeed: level.seed,
+            completeCandidates: 1,
+            incompleteCandidates: 0,
+            exactCandidates: 1,
+            allowApproximate: false,
+          },
+        },
+        generationError: null,
+      });
+
+      return { level, error: null };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { level: null, error: msg };
+    }
+  },
 }));

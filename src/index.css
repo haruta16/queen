@@ -751,126 +751,6 @@ button {
   line-height: 1.45;
 }
 
-.trace-simulator {
-  margin: 14px 0;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(255,250,240,0.72);
-}
-
-.trace-header,
-.trace-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.trace-header strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 950;
-}
-
-.trace-board {
-  display: grid;
-  gap: 4px;
-  width: min(100%, 430px);
-  margin: 0 auto;
-  padding: 8px;
-  border-radius: 10px;
-  background: #181511;
-}
-
-.trace-cell {
-  aspect-ratio: 1;
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 5px;
-  color: rgba(23,23,23,0.82);
-  font-size: 11px;
-  font-weight: 950;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
-}
-
-.trace-cell.trace-unknown {
-  background: #eee6d8 !important;
-  opacity: 0.5;
-}
-
-.trace-cell.trace-placed {
-  box-shadow: inset 0 0 0 3px #171717;
-}
-
-.trace-cell.trace-skeleton {
-  outline: 2px solid #ffffff;
-  outline-offset: -4px;
-}
-
-.trace-cell.trace-expected {
-  color: #ffffff;
-  background: #b91432 !important;
-}
-
-.trace-cell.trace-protected {
-  color: #ffffff;
-  background: #087f7a !important;
-}
-
-.trace-controls {
-  margin-top: 10px;
-  margin-bottom: 0;
-}
-
-.trace-controls input {
-  flex: 1;
-  accent-color: var(--accent);
-}
-
-.trace-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.trace-detail-grid > div {
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: rgba(255,255,255,0.48);
-}
-
-.trace-detail-grid span {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 950;
-}
-
-.trace-detail-grid strong {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 950;
-  overflow-wrap: anywhere;
-}
-
-.trace-reason {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.45;
-}
-
 .result-section {
   margin-top: 16px;
   padding: 14px;
@@ -929,6 +809,12 @@ button {
 
 .placeholder-icon {
   font-size: 56px;
+}
+
+.placeholder-text {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 850;
 }
 
 .spinner {

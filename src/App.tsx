@@ -16,7 +16,7 @@ export default function App() {
   const requestGenerate = useGameStore(s => s.requestGenerate);
   const loadLevel = useGameStore(s => s.loadLevel);
 
-  // Load a deterministic starter level for the mainline.
+  // 主线启动时自动加载一个确定性关卡
   useEffect(() => {
     if (!level) {
       requestGenerate({
@@ -31,7 +31,7 @@ export default function App() {
     }
   }, [level, requestGenerate, loadLevel]);
 
-  // Auto-clear message after 3 seconds
+  // 消息 3 秒后自动消失
   useEffect(() => {
     if (message) {
       const timer = setTimeout(clearMessage, 3000);
@@ -43,7 +43,7 @@ export default function App() {
     <div className="app-layout">
       <header className="app-header">
         <div className="brand-block">
-          <span className="brand-kicker">QUEEN ELIMINATION</span>
+          <span className="brand-kicker">皇后消元</span>
           <h1>皇后消元</h1>
         </div>
         <nav className="mode-tabs" aria-label="应用模式">

@@ -13,7 +13,7 @@ import { solve, applyBatchesUpTo } from './solver';
 import { createRNG, shuffle } from './random';
 
 // ============================================================
-// Queen layout — randomized backtracking
+// Queen 布局 — 随机化回溯算法
 // ============================================================
 
 export function generateQueenPositions(n: number, rng: () => number): Position[] {
@@ -46,14 +46,14 @@ export function generateQueenPositions(n: number, rng: () => number): Position[]
   }
 
   if (!backtrack(0)) {
-    throw new Error(`Failed to generate ${n} non-adjacent Queen positions`);
+    throw new Error(`无法生成 ${n} 个互不邻接的 Queen 坐标`);
   }
 
   return solution;
 }
 
 // ============================================================
-// Region generation — multi-source BFS
+// 区域生成 — 多源 BFS 扩张
 // ============================================================
 
 const DIRS_4 = [
@@ -65,6 +65,7 @@ function inBounds(r: number, c: number, n: number): boolean {
   return r >= 0 && r < n && c >= 0 && c < n;
 }
 
+/** 以 Queen 位置为种子，BFS 扩张生成连通区域 */
 function randomRegions(n: number, queens: Position[], rng: () => number): Region[] {
   const grid: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
   const regions: Position[][] = Array.from({ length: n }, () => []);
@@ -105,7 +106,7 @@ function randomRegions(n: number, queens: Position[], rng: () => number): Region
 }
 
 // ============================================================
-// Level assembly
+// 关卡组装
 // ============================================================
 
 function assembleLevel(
@@ -132,7 +133,7 @@ function assembleLevel(
 }
 
 // ============================================================
-// Diagnostics
+// 诊断信息
 // ============================================================
 
 function makeDiagnostics(
@@ -169,13 +170,12 @@ function makeDiagnostics(
 }
 
 // ============================================================
-// Main generator
+// 主生成器
 // ============================================================
 
 /**
- * Generate a level with random regions.
- * Does NOT try to match targetSteps — this is a placeholder.
- * Returns the first solvable level found, or the closest approximation.
+ * 生成一个关卡。随机尝试多次 Queen 布局+区域组合，
+ * 用求解器验证可解性，返回最接近 targetSteps 的结果。
  */
 export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed } = params;
@@ -214,6 +214,7 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
       bestAttemptSeed = actualSeed + attempt * 7919;
     }
 
+    // 精确命中立即返回
     if (diff === 0) {
       return {
         status: 'exact',
@@ -227,6 +228,7 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
     }
   }
 
+  // 允许近似时返回最接近的结果
   if (bestLevel && allowApproximate) {
     return {
       status: 'approximate',
@@ -246,14 +248,4 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
       bestLevel, bestAttempt, bestAttemptSeed, completeCandidates, allowApproximate,
     }),
   };
-}
-
-/**
- * Convenience wrapper that returns Level | null.
- */
-export function generateLevel(params: GeneratorParams): Level | null {
-  return generateLevelResult({
-    ...params,
-    allowApproximate: params.allowApproximate ?? true,
-  }).level;
 }

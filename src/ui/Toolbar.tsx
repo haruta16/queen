@@ -8,7 +8,6 @@ export default function Toolbar({ onOpenGenerator }: { onOpenGenerator: () => vo
   const undoX = useGameStore(s => s.undoX);
   const redoX = useGameStore(s => s.redoX);
   const resetBoard = useGameStore(s => s.resetBoard);
-  const requestSolve = useGameStore(s => s.requestSolve);
   const solverPanelOpen = useGameStore(s => s.solverPanelOpen);
   const setSolverPanelOpen = useGameStore(s => s.setSolverPanelOpen);
 

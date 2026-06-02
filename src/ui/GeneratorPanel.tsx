@@ -1,8 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { GeneratorDraft, useGameStore } from '../game/store';
-import { solve } from '../game/solver';
-import { createEmptyBoard } from '../game/rules';
-import type { Level, Region, Position } from '../game/types';
+import type { Level } from '../game/types';
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -17,68 +15,6 @@ function statusLabel(status: string): string {
   if (status === 'exact') return '精确命中';
   if (status === 'approximate') return '近似结果';
   return '未生成';
-}
-
-function importLevelFromJson(file: File): Promise<Level> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const json = JSON.parse(reader.result as string);
-        const n: number = json.size;
-        const colorMasks: number[] = json.colorMasks;
-        const cows: { x: number; y: number }[] = json.cows;
-
-        if (!Number.isFinite(n) || n < 2 || !Array.isArray(colorMasks) || colorMasks.length !== n * n) {
-          throw new Error(`无效的关卡数据: size=${n}, colorMasks长度=${colorMasks?.length}`);
-        }
-
-        // Group cells by mask value → regions
-        const maskToCells = new Map<number, Position[]>();
-        for (let i = 0; i < colorMasks.length; i++) {
-          const row = Math.floor(i / n);
-          const col = i % n;
-          const mask = colorMasks[i];
-          if (!maskToCells.has(mask)) maskToCells.set(mask, []);
-          maskToCells.get(mask)!.push({ row, col });
-        }
-
-        const regions: Region[] = [...maskToCells.entries()].map(([_mask, cells], idx) => ({
-          id: idx,
-          cells,
-        }));
-
-        // Convert cows (x=col, y=row) to solution positions
-        const solution: Position[] = cows.map(c => ({ row: c.y, col: c.x }));
-
-        // Run solver
-        const board = createEmptyBoard(n, regions);
-        const solverResult = solve(board);
-
-        if (!solverResult.complete) {
-          throw new Error('导入的关卡无法被求解器完全求解');
-        }
-
-        const level: Level = {
-          id: `import-${json.seed || json.LevelID || Date.now()}`,
-          n,
-          regions,
-          solution,
-          seed: json.seed ?? json.LevelID ?? 0,
-          targetSteps: solverResult.totalSteps,
-          actualSteps: solverResult.totalSteps,
-          strategySequence: solverResult.batches.map(b => b.strategy),
-          solverResult,
-        };
-
-        resolve(level);
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
-    };
-    reader.onerror = () => reject(new Error('文件读取失败'));
-    reader.readAsText(file);
-  });
 }
 
 function exportLevelAsJson(level: Level) {
@@ -99,7 +35,7 @@ function exportLevelAsJson(level: Level) {
     size: level.n,
     difficulty: 1,
     seed: level.seed,
-    note: `Generated from Queen Puzzle Generator. Size: ${level.n}×${level.n}, Steps: ${level.actualSteps}, Seed: ${level.seed}`,
+    note: `Queen 解谜生成器导出。大小: ${level.n}×${level.n}, 步数: ${level.actualSteps}, 种子: ${level.seed}`,
     colorMasks: grid.flat(),
     cows: level.solution.map(pos => ({ x: pos.col, y: pos.row })),
   };
@@ -130,10 +66,6 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     return lastLevel.actualSteps - lastLevel.targetSteps;
   }, [lastLevel]);
 
-  const updateDraft = (patch: Partial<GeneratorDraft>) => {
-    setDraft(patch);
-  };
-
   const handleGenerate = () => {
     requestGenerate({
       n: clamp(draft.n, 5, 10),
@@ -152,44 +84,19 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
     fileInputRef.current?.click();
   };
 
+  const importLevelFromJson = useGameStore(s => s.importLevelFromJson);
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     setImportError(null);
-    try {
-      const level = await importLevelFromJson(file);
-      useGameStore.setState({
-        lastGeneratedLevel: level,
-        lastGenerationResult: {
-          status: 'exact',
-          level,
-          diagnostics: {
-            status: 'exact',
-            attempts: 1,
-            maxAttempts: 1,
-            elapsedMs: 0,
-            seed: level.seed,
-            targetSteps: level.targetSteps,
-            bestActualSteps: level.actualSteps,
-            bestDiff: 0,
-            selectedAttempt: 1,
-            selectedAttemptSeed: level.seed,
-            completeCandidates: 1,
-            incompleteCandidates: 0,
-            exactCandidates: 1,
-            allowApproximate: false,
-          },
-        },
-        generationError: null,
-      });
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : String(e));
-    }
+    const { error } = await importLevelFromJson(file);
+    if (error) setImportError(error);
     event.target.value = '';
   };
 
   const randomizeSeed = () => {
-    updateDraft({ seed: Math.floor(100000 + Math.random() * 900000000) });
+    setDraft({ seed: Math.floor(100000 + Math.random() * 900000000) });
   };
 
   return (
@@ -202,7 +109,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
         onChange={handleFileChange}
       />
       <section className="generator-hero">
-        <span className="brand-kicker">LEVEL FORGE</span>
+        <span className="brand-kicker">关卡工坊</span>
         <h2>关卡生成器</h2>
         <p>生成和进入主线已经分开。先生成、看结果参数，满意后再进入主线。</p>
       </section>
@@ -217,7 +124,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
 
             <label className="generator-field">
               <span>棋盘大小</span>
-              <select value={draft.n} onChange={event => updateDraft({ n: Number(event.target.value) })}>
+              <select value={draft.n} onChange={event => setDraft({ n: Number(event.target.value) })}>
                 {[5, 6, 7, 8, 9, 10].map(size => (
                   <option key={size} value={size}>{size} × {size}</option>
                 ))}
@@ -231,7 +138,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 min={1}
                 max={80}
                 value={draft.targetSteps}
-                onChange={event => updateDraft({ targetSteps: clamp(Number(event.target.value), 1, 80) })}
+                onChange={event => setDraft({ targetSteps: clamp(Number(event.target.value), 1, 80) })}
               />
             </label>
 
@@ -246,11 +153,11 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                   value={draft.seed ?? ''}
                   onChange={event => {
                     const raw = event.target.value.trim();
-                    updateDraft({ seed: raw ? clamp(Number(raw), 1, 999_999_999) : null });
+                    setDraft({ seed: raw ? clamp(Number(raw), 1, 999_999_999) : null });
                   }}
                 />
                 <button className="micro-btn" onClick={randomizeSeed}>随机</button>
-                <button className="micro-btn" onClick={() => updateDraft({ seed: null })}>清空</button>
+                <button className="micro-btn" onClick={() => setDraft({ seed: null })}>清空</button>
               </div>
             </label>
 
@@ -261,7 +168,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
                 min={1}
                 max={100000}
                 value={draft.maxAttempts}
-                onChange={event => updateDraft({ maxAttempts: clamp(Number(event.target.value), 1, 100000) })}
+                onChange={event => setDraft({ maxAttempts: clamp(Number(event.target.value), 1, 100000) })}
               />
             </label>
 
@@ -269,7 +176,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               <input
                 type="checkbox"
                 checked={draft.allowApproximate}
-                onChange={event => updateDraft({ allowApproximate: event.target.checked })}
+                onChange={event => setDraft({ allowApproximate: event.target.checked })}
               />
               <span>
                 允许近似结果
@@ -301,7 +208,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
         <div className="generator-results-panel">
           <div className="results-topline">
             <div>
-              <span className="brand-kicker">RESULT</span>
+              <span className="brand-kicker">结果</span>
               <strong>{lastLevel ? lastLevel.id : lastResult ? statusLabel(lastResult.status) : '等待生成'}</strong>
             </div>
             {lastResult && (
@@ -403,7 +310,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               </div>
 
               <div className="result-section">
-                <span className="brand-kicker">STRATEGY SEQUENCE</span>
+                <span className="brand-kicker">策略序列</span>
                 <div className="strategy-chip-row">
                   {lastLevel.strategySequence.map((type, index) => (
                     <span key={`${type}-${index}`} className={`batch-strategy-tag strat-${type}`}>
@@ -414,7 +321,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               </div>
 
               <div className="result-section">
-                <span className="brand-kicker">SOLUTION ANCHORS</span>
+                <span className="brand-kicker">解法锚点</span>
                 <div className="solution-list">
                   {lastLevel.solution.map(pos => (
                     <span key={`${pos.row}-${pos.col}`}>r{pos.row} c{pos.col}</span>
