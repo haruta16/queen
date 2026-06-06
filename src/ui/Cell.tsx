@@ -101,7 +101,7 @@ function CellComponent({
 
   return (
     <div className={className} style={style} onClick={handleClick} onDoubleClick={handleDoubleClick}>
-      {isQueen && <span className="queen-icon">♛</span>}
+      {isQueen && <span className="queen-icon" style={{ fontSize: Math.round(size * 0.55) }}>♛</span>}
       {isX && !isQueen && !isWrong && <span className="x-icon">✕</span>}
       {isWrong && !isQueen && <span className="wrong-icon">✕</span>}
     </div>

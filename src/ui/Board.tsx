@@ -8,10 +8,18 @@ const REGION_COLORS = [
   '#3A9FCA', '#7B6CBF', '#D486A8', '#6AAAD4', '#B8A67E',
 ];
 
-function getCellSize(n: number): number {
+function getCellSizeFallback(n: number): number {
   const boardChrome = window.innerWidth <= 760 ? 46 : 74;
   const vhSize = Math.floor((window.innerHeight * 0.62 - boardChrome) / n);
   const vwSize = Math.floor((window.innerWidth * 0.92 - boardChrome) / n);
+  const minSize = window.innerWidth <= 420 ? 24 : 34;
+  return Math.max(minSize, Math.min(vhSize, vwSize, 68));
+}
+
+function getCellSize(n: number, containerWidth: number, containerHeight: number): number {
+  const boardChrome = window.innerWidth <= 760 ? 46 : 74;
+  const vhSize = Math.floor((containerHeight - boardChrome) / n);
+  const vwSize = Math.floor((containerWidth - boardChrome) / n);
   const minSize = window.innerWidth <= 420 ? 24 : 34;
   return Math.max(minSize, Math.min(vhSize, vwSize, 68));
 }
@@ -50,14 +58,26 @@ export default function Board() {
 
   const n = board?.n ?? 0;
 
-  const [, setTick] = useState(0);
+  // 用 ResizeObserver 监听容器的实际可用空间
+  // 侧边栏打开/关闭、窗口缩放都会自动触发重新计算
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+
   useEffect(() => {
-    const onResize = () => setTick(t => t + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setContainerSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
-  const cellSize = n > 0 ? getCellSize(n) : 48;
+  const cellSize = useMemo(() => {
+    if (n <= 0) return 48;
+    if (!containerSize || containerSize.width === 0) return getCellSizeFallback(n);
+    return getCellSize(n, containerSize.width, containerSize.height);
+  }, [n, containerSize]);
 
   const getSolverBoardAtStep = useGameStore(s => s.getSolverBoardAtStep);
 
@@ -123,7 +143,7 @@ export default function Board() {
   const isPreviewingSolver = !!solverResult && solverStepIndex > 0;
 
   return (
-    <div className="board-container">
+    <div className="board-container" ref={containerRef}>
       {showCelebration && <div className="celebration-overlay" />}
       <div
         className={`board-grid ${isComplete ? 'board-complete' : ''}`}

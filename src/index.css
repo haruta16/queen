@@ -110,8 +110,18 @@ button {
   box-shadow: 0 8px 18px rgba(23,23,23,0.16);
 }
 
+.main-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  position: relative; /* 窄屏 overlay 的定位上下文 */
+}
+
 .app-main {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   justify-content: center;
@@ -215,8 +225,11 @@ button {
 }
 
 .cell.is-queen {
-  background: linear-gradient(135deg, #ffe682, #c88c00) !important;
-  box-shadow: inset 0 0 0 2px rgba(23,23,23,0.38), 0 0 22px rgba(242,183,5,0.4);
+  /* 保留区域底色，叠加金色识别标记 */
+  box-shadow:
+    inset 0 0 0 3px #d4a017,
+    0 0 0 2px rgba(23,23,23,0.12),
+    0 0 22px rgba(212, 160, 23, 0.5);
 }
 
 .cell.is-wrong {
@@ -248,8 +261,17 @@ button {
 
 .queen-icon {
   color: #231500;
-  font-size: 76%;
+  font-size: 80%;
   text-shadow: 0 1px 0 rgba(255,255,255,0.55), 0 0 18px rgba(255,255,255,0.45);
+}
+
+.queen-icon::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(212,160,23,0.2) 30%, transparent 70%);
+  pointer-events: none;
 }
 
 .cell.is-unique-candidate {
@@ -395,30 +417,24 @@ button {
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-.panel-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  justify-content: flex-end;
-  background: transparent;
-  pointer-events: none;
-}
-
-.panel {
-  width: min(420px, 94vw);
-  height: 100%;
-  display: flex;
+/* 默认隐藏（关闭状态） */
+.solver-sidebar {
+  display: none;
   flex-direction: column;
   background: var(--paper-2);
-  box-shadow: -18px 0 55px rgba(23,23,23,0.24);
-  animation: panelSlideIn 260ms ease;
-  pointer-events: auto;
+  overflow: hidden;
 }
 
-@keyframes panelSlideIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+/* 桌面端：内联侧边栏，参与 flex 流 */
+.solver-sidebar.is-open {
+  display: flex;
+  flex: 0 0 380px;
+  border-left: 1px solid var(--line);
+}
+
+/* 遮罩层 — 仅移动端 overlay 时可见 */
+.solver-backdrop {
+  display: none;
 }
 
 .panel-header {
@@ -895,22 +911,6 @@ button {
     justify-content: center;
   }
 
-  .panel-overlay {
-    align-items: flex-end;
-  }
-
-  .panel {
-    width: 100%;
-    height: 68vh;
-    border-radius: 14px 14px 0 0;
-    animation: panelSlideUp 260ms ease;
-  }
-
-  @keyframes panelSlideUp {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
-  }
-
   .generator-shell {
     padding: 14px;
   }
@@ -923,6 +923,39 @@ button {
   .generator-metrics,
   .diagnostic-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 窄屏：侧边栏变为 absolute overlay，不挤压棋盘 */
+  .solver-sidebar.is-open {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(380px, 85vw);
+    z-index: 20;
+    box-shadow: -8px 0 40px rgba(0,0,0,0.28);
+    border-left: none;
+    border-radius: 12px 0 0 12px;
+    animation: sidebarSlideIn 200ms ease;
+  }
+
+  @keyframes sidebarSlideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  .solver-backdrop.is-open {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 19;
+    animation: backdropFadeIn 200ms ease;
+  }
+
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 }
 

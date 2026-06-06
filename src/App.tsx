@@ -59,15 +59,18 @@ export default function App() {
       {appMode === 'mainline' ? (
         <>
           <Hud />
-          <div className="app-main">
-            {isGenerating ? (
-              <div className="placeholder">
-                <span className="spinner" />
-                <span style={{ marginLeft: 8 }}>正在装配主线关卡...</span>
-              </div>
-            ) : (
-              <Board />
-            )}
+          <div className="main-area">
+            <div className="app-main">
+              {isGenerating ? (
+                <div className="placeholder">
+                  <span className="spinner" />
+                  <span style={{ marginLeft: 8 }}>正在装配主线关卡...</span>
+                </div>
+              ) : (
+                <Board />
+              )}
+            </div>
+            <SolverPanel />
           </div>
           <Toolbar onOpenGenerator={() => setAppMode('generator')} />
         </>
@@ -81,9 +84,6 @@ export default function App() {
           {message}
         </div>
       )}
-
-      {/* Panels */}
-      <SolverPanel />
     </div>
   );
 }

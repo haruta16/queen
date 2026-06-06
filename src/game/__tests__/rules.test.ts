@@ -171,21 +171,22 @@ describe('applyX and removeX', () => {
 
 describe('isBoardValid', () => {
   it('accepts a valid Queen placement', () => {
-    // 3 queens in different rows, cols, regions, not adjacent
-    const layout = [
-      [0, 1, 2],
-      [0, 1, 2],
-      [0, 1, 2],
-    ];
-    const regions = makeRegions(3, layout);
-    const board = makeBoard(3, regions, [
+    const n = 5;
+    const layout: number[][] = [];
+    for (let r = 0; r < n; r++) {
+      layout.push([]);
+      for (let c = 0; c < n; c++) layout[r].push(r * n + c);
+    }
+    const regions = makeRegions(n, layout);
+    // Non-adjacent queens with distinct rows/cols/regions
+    const board = makeBoard(n, regions, [
       { row: 0, col: 0 },
-      { row: 1, col: 1 },
-      { row: 2, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 1 },
+      { row: 3, col: 4 },
+      { row: 4, col: 2 },
     ]);
-    // (0,0) adjacent to (1,0),(1,1),(0,1) — none are queens
-    // (1,1) is diagonally adjacent to (0,0) — wait that IS a violation!
-    // Let me choose better positions
+    expect(isBoardValid(board)).toBe(true);
   });
 
   it('rejects queens in same row', () => {
@@ -211,12 +212,12 @@ describe('isBoardValid', () => {
   it('rejects two queens in same region', () => {
     const layout = [[0,0,1],[0,0,1],[2,2,1]];
     const regions = makeRegions(3, layout);
+    // (0,0) and (1,0) are both in region 0
     const board = makeBoard(3, regions, [
       { row: 0, col: 0 },
-      { row: 2, col: 0 }, // same region 0 as (0,0)? Let me check layout
+      { row: 1, col: 0 },
     ]);
-    // (0,0) is region 0, (1,0) is region 0, (2,0) is region 2
-    // Actually (0,0) and (2,0) are different regions. Let me adjust.
+    expect(isBoardValid(board)).toBe(false);
   });
 
   it('accepts valid non-adjacent queens in different rows/cols/regions', () => {
