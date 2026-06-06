@@ -68,14 +68,14 @@ function* combosK<T>(arr: T[], k: number, start = 0, current: T[] = []): Generat
 /**
  * 广义鸽巢原理消除。
  *
- * 如果 k 个源单位（行/列/区域）的所有候选格局限在恰好 k 个资源单位中，
- * 则这 k 个资源被"锁定"——这些资源中的外来候选可被消除。
+ * 如果 k 个 from 维度单位（行/列/区域）的所有候选格局限在恰好 k 个 into 维度单位中，
+ * 则这 k 个 into 维度单位被"锁定"——这些单位中的外来候选可被消除。
  */
 function lockK(
   board: BoardState,
   k: number,
-  source: LockDim,
-  resource: LockDim,
+  fromDim: LockDim,
+  intoDim: LockDim,
   index: number,
 ): SolverBatch | null {
   const n = board.n;
@@ -105,43 +105,43 @@ function lockK(
     return `区域${id}`;
   };
 
-  const ids = unitIds(source);
+  const ids = unitIds(fromDim);
 
   for (const combo of combosK(ids, k)) {
-    // 收集 k 个源单位的所有候选
+    // 收集 k 个 from 维度单位的所有候选
     const allCands: Position[] = [];
-    for (const id of combo) allCands.push(...getCands(source, id));
+    for (const id of combo) allCands.push(...getCands(fromDim, id));
     if (allCands.length < k) continue;
 
-    // 检查是否局限在恰好 k 个资源维度
-    const resVals = new Set(allCands.map(c => dimVal(resource, c)));
-    if (resVals.size !== k) continue;
+    // 检查是否局限在恰好 k 个 into 维度单位
+    const intoVals = new Set(allCands.map(c => dimVal(intoDim, c)));
+    if (intoVals.size !== k) continue;
 
-    // k 个源单位 → k 个资源 — 消除外部候选
+    // k 个 from 单位 → k 个 into 单位 — 消除外部候选
     const eliminations: Position[] = [];
     const elimSet = new Set<string>();
-    const srcSet = new Set(combo);
+    const fromSet = new Set(combo);
 
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
         const cell = board.cells[r][c];
         if (cell.isQueen || cell.isX || cell.isWrong) continue;
-        if (!resVals.has(dimVal(resource, { row: r, col: c }))) continue;
-        if (srcSet.has(dimVal(source, { row: r, col: c }))) continue;
+        if (!intoVals.has(dimVal(intoDim, { row: r, col: c }))) continue;
+        if (fromSet.has(dimVal(fromDim, { row: r, col: c }))) continue;
         const key = `${r},${c}`;
         if (!elimSet.has(key)) { elimSet.add(key); eliminations.push({ row: r, col: c }); }
       }
     }
 
     if (eliminations.length > 0) {
-      const srcDesc = combo.map(id => fmtUnit(source, id)).join('、');
-      const resDesc = Array.from(resVals).map(v => fmtUnit(resource, v)).join('、');
+      const fromDesc = combo.map(id => fmtUnit(fromDim, id)).join('、');
+      const intoDesc = Array.from(intoVals).map(v => fmtUnit(intoDim, v)).join('、');
       return {
         index,
         strategy: strategy as StrategyType,
         eliminations,
         queenConfirmed: [],
-        description: `L2 ${cnLabel}锁定 (${source}→${resource}): ${srcDesc}独占 ${resDesc} — 消除 ${eliminations.length} X`,
+        description: `L2 ${cnLabel}锁定 (${fromDim}→${intoDim}): ${fromDesc}独占 ${intoDesc} — 消除 ${eliminations.length} X`,
       };
     }
   }
@@ -149,7 +149,7 @@ function lockK(
   return null;
 }
 
-/** 全部 6 组有效的 (source, resource) 配对，其中 source ≠ resource */
+/** 全部 6 组有效的 (fromDim, intoDim) 配对，其中 fromDim ≠ intoDim */
 const LOCK_PAIRS: [LockDim, LockDim][] = [
   ['region', 'row'],
   ['region', 'col'],
@@ -160,24 +160,24 @@ const LOCK_PAIRS: [LockDim, LockDim][] = [
 ];
 
 function stepL2Lock1(board: BoardState, index: number): SolverBatch | null {
-  for (const [src, res] of LOCK_PAIRS) {
-    const batch = lockK(board, 1, src, res, index);
+  for (const [fromDim, intoDim] of LOCK_PAIRS) {
+    const batch = lockK(board, 1, fromDim, intoDim, index);
     if (batch) return batch;
   }
   return null;
 }
 
 function stepL2Lock2(board: BoardState, index: number): SolverBatch | null {
-  for (const [src, res] of LOCK_PAIRS) {
-    const batch = lockK(board, 2, src, res, index);
+  for (const [fromDim, intoDim] of LOCK_PAIRS) {
+    const batch = lockK(board, 2, fromDim, intoDim, index);
     if (batch) return batch;
   }
   return null;
 }
 
 function stepL2Lock3(board: BoardState, index: number): SolverBatch | null {
-  for (const [src, res] of LOCK_PAIRS) {
-    const batch = lockK(board, 3, src, res, index);
+  for (const [fromDim, intoDim] of LOCK_PAIRS) {
+    const batch = lockK(board, 3, fromDim, intoDim, index);
     if (batch) return batch;
   }
   return null;

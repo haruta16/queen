@@ -95,7 +95,7 @@ export function findUniqueCandidates(board: BoardState): Position[] {
 
   for (let r = 0; r < board.n; r++) {
     const cands = getCandidatesInRow(board, r);
-    if (cands.length === 1 && !board.cells[cands[0].row][cands[0].col].isQueen) {
+    if (cands.length === 1) {
       const key = `${cands[0].row},${cands[0].col}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -106,7 +106,7 @@ export function findUniqueCandidates(board: BoardState): Position[] {
 
   for (let c = 0; c < board.n; c++) {
     const cands = getCandidatesInCol(board, c);
-    if (cands.length === 1 && !board.cells[cands[0].row][cands[0].col].isQueen) {
+    if (cands.length === 1) {
       const key = `${cands[0].row},${cands[0].col}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -118,7 +118,7 @@ export function findUniqueCandidates(board: BoardState): Position[] {
   const regionIds = getRegionIds(board);
   for (const rid of regionIds) {
     const cands = getCandidatesInRegion(board, rid);
-    if (cands.length === 1 && !board.cells[cands[0].row][cands[0].col].isQueen) {
+    if (cands.length === 1) {
       const key = `${cands[0].row},${cands[0].col}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -267,6 +267,7 @@ export function isBoardValid(board: BoardState): boolean {
 /**
  * 从区域布局创建空棋盘。
  * 无 Queen、无 X — 仅填充区域 ID。
+ * BFS 区域生长可能遗留孤立格子（regionId = -1），在此兜底吸附到相邻区域。
  */
 export function createEmptyBoard(n: number, regions: Region[]): BoardState {
   const cells: CellState[][] = Array.from({ length: n }, () =>
@@ -276,6 +277,35 @@ export function createEmptyBoard(n: number, regions: Region[]): BoardState {
   for (const region of regions) {
     for (const { row, col } of region.cells) {
       cells[row][col].regionId = region.id;
+    }
+  }
+
+  // 兜底：扫描未分配的格子，吸附到相邻已分配区域
+  const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if (cells[r][c].regionId !== -1) continue;
+        for (const [dr, dc] of DIRS) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < n && nc >= 0 && nc < n && cells[nr][nc].regionId >= 0) {
+            cells[r][c].regionId = cells[nr][nc].regionId;
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // fixup 可能改变了格子归属，用 cells 终态重建 Region.cells 保证一致
+  for (const region of regions) region.cells = [];
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const rid = cells[r][c].regionId;
+      if (rid >= 0) regions[rid].cells.push({ row: r, col: c });
     }
   }
 

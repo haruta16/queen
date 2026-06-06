@@ -20,12 +20,11 @@ interface CellProps {
   isUniqueCandidate: boolean;
   isSolverHighlight: boolean;
   borders: CellBorders;
-  interactive: boolean;
 }
 
 function CellComponent({
   row, col, isQueen, isX, isWrong, color, size,
-  isUniqueCandidate, isSolverHighlight, borders, interactive,
+  isUniqueCandidate, isSolverHighlight, borders,
 }: CellProps) {
   const [animClass, setAnimClass] = useState('');
   const toggleX = useGameStore(s => s.toggleX);
@@ -55,9 +54,8 @@ function CellComponent({
   }, [isQueen]);
 
   const handleClick = useCallback(() => {
-    if (!interactive || isQueen || isWrong) return;
     toggleX(row, col);
-  }, [row, col, isQueen, isWrong, interactive, toggleX]);
+  }, [row, col, toggleX]);
 
   useEffect(() => {
     if (isWrong && !prevIsWrong.current) {
@@ -70,13 +68,12 @@ function CellComponent({
   }, [isWrong]);
 
   const handleDoubleClick = useCallback(() => {
-    if (!interactive || isQueen || isWrong) return;
     const error = confirmQueen(row, col);
     if (error) {
       setAnimClass('is-error');
       setTimeout(() => setAnimClass(''), 360);
     }
-  }, [row, col, isQueen, isWrong, interactive, confirmQueen]);
+  }, [row, col, confirmQueen]);
 
   let className = 'cell';
   if (isQueen) className += ' is-queen';
@@ -84,7 +81,6 @@ function CellComponent({
   if (isWrong && !isQueen) className += ' is-wrong';
   if (isUniqueCandidate && !isQueen && !isX) className += ' is-unique-candidate';
   if (isSolverHighlight) className += ' is-solver-highlight';
-  if (!interactive) className += ' is-preview';
   if (animClass) className += ` ${animClass}`;
 
   const regionBorder = '2px solid rgba(23,23,23,0.38)';

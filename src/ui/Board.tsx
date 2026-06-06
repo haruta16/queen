@@ -140,7 +140,6 @@ export default function Board() {
   }
 
   const defaultBorders = { top: false, right: false, bottom: false, left: false };
-  const isPreviewingSolver = !!solverResult && solverStepIndex > 0;
 
   return (
     <div className="board-container" ref={containerRef}>
@@ -167,10 +166,9 @@ export default function Board() {
                 isWrong={cell.isWrong}
                 color={REGION_COLORS[cell.regionId % REGION_COLORS.length]}
                 size={cellSize}
-                isUniqueCandidate={!isPreviewingSolver && uniqueCandidates.has(key)}
+                isUniqueCandidate={uniqueCandidates.has(key)}
                 isSolverHighlight={solverHighlights.has(key)}
                 borders={regionBorders?.[r]?.[c] ?? defaultBorders}
-                interactive={!isPreviewingSolver}
               />
             );
           })

@@ -53,6 +53,7 @@ interface GameState {
 
   // 操作
   loadLevel: (level: Level) => void;
+  recomputeSolver: () => void;
   toggleX: (row: number, col: number) => void;
   confirmQueen: (row: number, col: number) => string | null;
   undoX: () => void;
@@ -68,7 +69,13 @@ interface GameState {
   importLevelFromJson: (file: File) => Promise<{ level: Level | null; error: string | null }>;
 }
 
-export const useGameStore = create<GameState>((set, get) => ({
+export const useGameStore = create<GameState>((set, get) => {
+  // 棋盘变更后若求解面板打开则自动重算
+  const maybeRecompute = () => {
+    if (get().solverPanelOpen) get().recomputeSolver();
+  };
+
+  return {
   level: null,
   board: null,
   xHistory: [],
@@ -97,11 +104,18 @@ export const useGameStore = create<GameState>((set, get) => ({
       board,
       xHistory: [],
       redoStack: [],
-      solverResult: level.solverResult,
+      solverResult: null,
       solverStepIndex: 0,
       message: `关卡已加载: ${level.n}×${level.n} / ${level.actualSteps}步`,
       messageType: 'info',
     });
+  },
+
+  recomputeSolver: () => {
+    const { board } = get();
+    if (!board) return;
+    const result = solve(board);
+    set({ solverResult: result, solverStepIndex: 0 });
   },
 
   toggleX: (row, col) => {
@@ -131,6 +145,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         message: null,
       });
     }
+    maybeRecompute();
   },
 
   confirmQueen: (row, col) => {
@@ -151,6 +166,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         message: `不是 Queen: ${formatPos({ row, col })}`,
         messageType: 'error',
       });
+      maybeRecompute();
       return null;
     }
 
@@ -169,6 +185,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       messageType: complete ? 'success' : 'info',
     });
 
+    maybeRecompute();
     return null;
   },
 
@@ -194,6 +211,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       redoStack: [...get().redoStack, lastOp],
       message: null,
     });
+    maybeRecompute();
   },
 
   redoX: () => {
@@ -218,6 +236,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       redoStack: newRedo,
       message: null,
     });
+    maybeRecompute();
   },
 
   resetBoard: () => {
@@ -232,6 +251,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       message: '棋盘已重置',
       messageType: 'info',
     });
+    maybeRecompute();
   },
 
   setSolverStep: (index) => {
@@ -241,7 +261,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ solverStepIndex: clamped });
   },
 
-  setSolverPanelOpen: (open) => set({ solverPanelOpen: open }),
+  setSolverPanelOpen: (open) => {
+    set({ solverPanelOpen: open });
+    if (open) get().recomputeSolver();
+  },
 
   requestGenerate: async (params) => {
     const actualSeed = params.seed ?? Date.now();
@@ -342,12 +365,11 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   clearMessage: () => set({ message: null }),
 
-  // 根据求解器步骤索引重建对应步骤的棋盘状态
+  // 在当前玩家棋盘上叠加求解器批次，重建对应步骤的预览棋盘
   getSolverBoardAtStep: (stepIndex) => {
-    const { level, solverResult } = get();
-    if (!level || !solverResult || stepIndex <= 0) return null;
-    const emptyBoard = createEmptyBoard(level.n, level.regions);
-    return applyBatchesUpTo(emptyBoard, solverResult.batches, stepIndex);
+    const { board, solverResult } = get();
+    if (!board || !solverResult || stepIndex <= 0) return null;
+    return applyBatchesUpTo(board, solverResult.batches, stepIndex);
   },
 
   // 从 JSON 文件导入关卡（兼容 LinkedIn Queens 格式）
@@ -437,4 +459,5 @@ export const useGameStore = create<GameState>((set, get) => ({
       return { level: null, error: msg };
     }
   },
-}));
+  };
+});
