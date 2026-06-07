@@ -86,8 +86,8 @@ export const useGameStore = create<GameState>((set, get) => {
   isGenerating: false,
   generationError: null,
   generatorDraft: {
-    n: 7,
-    targetSteps: 16,
+    n: 6,
+    targetSteps: 7,
     seed: null,
     maxAttempts: 2500,
     allowApproximate: false,

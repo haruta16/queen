@@ -21,10 +21,10 @@ export default function App() {
     if (!level) {
       requestGenerate({
         n: 6,
-        targetSteps: 12,
+        targetSteps: 7,
         seed: 20260515,
         maxAttempts: 2500,
-        allowApproximate: true,
+        allowApproximate: false,
       }).then(result => {
         if (result.level) loadLevel(result.level);
       });

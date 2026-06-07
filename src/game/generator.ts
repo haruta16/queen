@@ -1,16 +1,13 @@
 import {
-  Position,
-  Region,
   Level,
+  Position,
   GeneratorParams,
   GenerationDiagnostics,
   GenerationResult,
   GenerationStatus,
-  SolverResult,
 } from './types';
-import { createEmptyBoard, getQueenPositions } from './rules';
-import { solve, applyBatchesUpTo } from './solver';
-import { createRNG, shuffle } from './random';
+import { shuffle } from './random';
+import { generateProjectLevel } from './projectGenerator';
 
 // ============================================================
 // Queen 布局 — 随机化回溯算法
@@ -50,86 +47,6 @@ export function generateQueenPositions(n: number, rng: () => number): Position[]
   }
 
   return solution;
-}
-
-// ============================================================
-// 区域生成 — 多源 BFS 扩张
-// ============================================================
-
-const DIRS_4 = [
-  { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
-  { dr: 0, dc: -1 }, { dr: 0, dc: 1 },
-];
-
-function inBounds(r: number, c: number, n: number): boolean {
-  return r >= 0 && r < n && c >= 0 && c < n;
-}
-
-/** 以 Queen 位置为种子，BFS 扩张生成连通区域 */
-function randomRegions(n: number, queens: Position[], rng: () => number): Region[] {
-  const grid: number[][] = Array.from({ length: n }, () => Array(n).fill(-1));
-  const regions: Position[][] = Array.from({ length: n }, () => []);
-  const queues: Position[][] = Array.from({ length: n }, () => []);
-
-  for (let i = 0; i < queens.length; i++) {
-    const { row, col } = queens[i];
-    grid[row][col] = i;
-    regions[i].push({ row, col });
-    queues[i].push({ row, col });
-  }
-
-  const order = shuffle(Array.from({ length: n }, (_, i) => i), rng);
-  let unassigned = n * n - n;
-
-  while (unassigned > 0 && order.some(i => queues[i].length > 0)) {
-    for (const rid of order) {
-      if (queues[rid].length === 0) continue;
-      const cells = queues[rid];
-      const idx = rng() < 0.3 ? Math.floor(rng() * cells.length) : 0;
-      const cur = cells.splice(idx, 1)[0];
-
-      const dirs = shuffle([...DIRS_4], rng);
-      for (const { dr, dc } of dirs) {
-        const nr = cur.row + dr, nc = cur.col + dc;
-        if (inBounds(nr, nc, n) && grid[nr][nc] === -1) {
-          grid[nr][nc] = rid;
-          regions[rid].push({ row: nr, col: nc });
-          queues[rid].push({ row: nr, col: nc });
-          unassigned--;
-          break;
-        }
-      }
-    }
-  }
-
-  return regions.map((cells, id) => ({ id, cells }));
-}
-
-// ============================================================
-// 关卡组装
-// ============================================================
-
-function assembleLevel(
-  n: number,
-  regions: Region[],
-  seed: number,
-  targetSteps: number,
-  id: string,
-  result: SolverResult,
-): Level {
-  const board = createEmptyBoard(n, regions);
-  const solved = applyBatchesUpTo(board, result.batches, result.totalSteps);
-  return {
-    id,
-    n,
-    regions,
-    solution: getQueenPositions(solved),
-    seed,
-    targetSteps,
-    actualSteps: result.totalSteps,
-    strategySequence: result.batches.map(b => b.strategy),
-    solverResult: result,
-  };
 }
 
 // ============================================================
@@ -173,10 +90,7 @@ function makeDiagnostics(
 // 主生成器
 // ============================================================
 
-/**
- * 生成一个关卡。随机尝试多次 Queen 布局+区域组合，
- * 用求解器验证可解性，返回最接近 targetSteps 的结果。
- */
+/** 生成一个项目算法关卡。未覆盖的参数直接返回 failed。 */
 export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const { n, targetSteps, seed } = params;
   const actualSeed = seed ?? Date.now();
@@ -184,68 +98,41 @@ export function generateLevelResult(params: GeneratorParams): GenerationResult {
   const allowApproximate = params.allowApproximate ?? true;
   const maxAttempts = params.maxAttempts ?? 200;
 
-  let bestLevel: Level | null = null;
-  let bestDiff = Infinity;
-  let bestAttempt: number | null = null;
-  let bestAttemptSeed: number | null = null;
-  let completeCandidates = 0;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const rng = createRNG(actualSeed + attempt * 7919);
-
-    let queens: Position[];
-    try { queens = generateQueenPositions(n, rng); } catch { continue; }
-
-    const regions = randomRegions(n, queens, rng);
-    const result = solve(createEmptyBoard(n, regions));
-    if (!result.complete) continue;
-    completeCandidates++;
-
-    const level = assembleLevel(
-      n, regions, actualSeed, targetSteps,
-      `L${n}x${n}-${actualSeed}-${attempt}`, result,
-    );
-
-    const diff = Math.abs(level.actualSteps - targetSteps);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestLevel = level;
-      bestAttempt = attempt + 1;
-      bestAttemptSeed = actualSeed + attempt * 7919;
-    }
-
-    // 精确命中立即返回
-    if (diff === 0) {
-      return {
-        status: 'exact',
-        level,
-        diagnostics: makeDiagnostics('exact', {
-          attempts: attempt + 1, maxAttempts, startedAt, seed: actualSeed, targetSteps,
-          bestLevel: level, bestAttempt: attempt + 1,
-          bestAttemptSeed: actualSeed + attempt * 7919, completeCandidates, allowApproximate,
-        }),
-      };
-    }
-  }
-
-  // 允许近似时返回最接近的结果
-  if (bestLevel && allowApproximate) {
+  const projectLevel = generateProjectLevel({
+    n,
+    targetSteps,
+    seed: actualSeed,
+    maxAttempts,
+  });
+  if (projectLevel.level) {
     return {
-      status: 'approximate',
-      level: bestLevel,
-      diagnostics: makeDiagnostics('approximate', {
-        attempts: maxAttempts, maxAttempts, startedAt, seed: actualSeed, targetSteps,
-        bestLevel, bestAttempt, bestAttemptSeed, completeCandidates, allowApproximate,
+      status: 'exact',
+      level: projectLevel.level,
+      diagnostics: makeDiagnostics('exact', {
+        attempts: projectLevel.attempts,
+        maxAttempts,
+        startedAt,
+        seed: actualSeed,
+        targetSteps,
+        bestLevel: projectLevel.level,
+        bestAttempt: projectLevel.attempts,
+        bestAttemptSeed: actualSeed,
+        completeCandidates: 1,
+        allowApproximate,
       }),
     };
   }
 
   return {
     status: 'failed',
-    level: bestLevel,
+    level: null,
     diagnostics: makeDiagnostics('failed', {
       attempts: maxAttempts, maxAttempts, startedAt, seed: actualSeed, targetSteps,
-      bestLevel, bestAttempt, bestAttemptSeed, completeCandidates, allowApproximate,
+      bestLevel: null,
+      bestAttempt: null,
+      bestAttemptSeed: null,
+      completeCandidates: 0,
+      allowApproximate,
     }),
   };
 }
