@@ -28,6 +28,29 @@ export type StrategyType =
   | 'L3_Projection'
   | 'L3_Contradiction';
 
+/** 约束单位类型 */
+export type UnitKind = 'row' | 'col' | 'region';
+
+/** 约束单位引用 — 用于推理可视化 */
+export type UnitRef = {
+  kind: UnitKind;
+  index: number;
+};
+
+/** 求解器一个批次的推理元数据 — 用于前端渲染推理可视化 */
+export type SolverBatchReason = {
+  sourceUnit?: UnitRef;
+  sourceUnits?: UnitRef[];
+  targetUnit?: UnitRef;
+  targetUnits?: UnitRef[];
+  sourceCandidates?: Position[];
+  remainingCandidates?: Position[];
+  excludedCells?: Position[];
+  assumptionCell?: Position;
+  contradictionType?: string;
+  groupSize?: number;
+};
+
 /** 求解器的一个批次 — 单次策略执行的产出 */
 export type SolverBatch = {
   index: number;
@@ -35,6 +58,7 @@ export type SolverBatch = {
   eliminations: Position[];
   queenConfirmed: Position[];
   description: string;
+  reason?: SolverBatchReason;
 };
 
 /** 求解器完整输出 */

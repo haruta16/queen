@@ -39,6 +39,7 @@ interface GameState {
   solverResult: SolverResult | null;
   solverStepIndex: number;
   solverPanelOpen: boolean;
+  boardMode: 'hints' | 'board';
 
   // 生成器状态
   isGenerating: boolean;
@@ -61,6 +62,7 @@ interface GameState {
   resetBoard: () => void;
   setSolverStep: (index: number) => void;
   setSolverPanelOpen: (open: boolean) => void;
+  setBoardMode: (mode: 'hints' | 'board') => void;
   requestGenerate: (params: GeneratorParams) => Promise<GenerationResult>;
   setGeneratorDraft: (patch: Partial<GeneratorDraft>) => void;
   enterGeneratedLevel: () => boolean;
@@ -70,9 +72,13 @@ interface GameState {
 }
 
 export const useGameStore = create<GameState>((set, get) => {
-  // 棋盘变更后若求解面板打开则自动重算
+  // 面板打开时棋盘变化 → 下一帧重算（去抖合并连续操作）
+  // 不再先清除 solverResult，因为 Board 始终用真实棋盘 + cellMetas 叠加层
+  let recomputeTimer: ReturnType<typeof setTimeout> | null = null;
   const maybeRecompute = () => {
-    if (get().solverPanelOpen) get().recomputeSolver();
+    if (!get().solverPanelOpen) return;
+    if (recomputeTimer) clearTimeout(recomputeTimer);
+    recomputeTimer = setTimeout(() => get().recomputeSolver(), 0);
   };
 
   return {
@@ -83,6 +89,7 @@ export const useGameStore = create<GameState>((set, get) => {
   solverResult: null,
   solverStepIndex: 0,
   solverPanelOpen: false,
+  boardMode: 'hints' as const,
   isGenerating: false,
   generationError: null,
   generatorDraft: {
@@ -262,9 +269,16 @@ export const useGameStore = create<GameState>((set, get) => {
   },
 
   setSolverPanelOpen: (open) => {
-    set({ solverPanelOpen: open });
-    if (open) get().recomputeSolver();
+    if (open) {
+      set({ solverPanelOpen: true });
+      get().recomputeSolver();
+    } else {
+      // 关闭面板时清空求解结果
+      set({ solverPanelOpen: false, solverResult: null, solverStepIndex: 0, boardMode: 'hints' as const });
+    }
   },
+
+  setBoardMode: (mode) => set({ boardMode: mode }),
 
   requestGenerate: async (params) => {
     const actualSeed = params.seed ?? Date.now();
@@ -365,7 +379,7 @@ export const useGameStore = create<GameState>((set, get) => {
 
   clearMessage: () => set({ message: null }),
 
-  // 在当前玩家棋盘上叠加求解器批次，重建对应步骤的预览棋盘
+  // 在给定棋盘上叠加求解器批次，重建对应步骤的预览棋盘（保留供外部使用）
   getSolverBoardAtStep: (stepIndex) => {
     const { board, solverResult } = get();
     if (!board || !solverResult || stepIndex <= 0) return null;

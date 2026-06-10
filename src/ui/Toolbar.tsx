@@ -18,47 +18,32 @@ export default function Toolbar({ onOpenGenerator }: { onOpenGenerator: () => vo
       <div className="toolbar-hint">
         <strong>单击</strong> 标记 X
         <span>·</span>
-        <strong>双击</strong> 翻面确认
+        <strong>双击</strong> 确认 Queen
       </div>
 
       <div className="toolbar-divider" />
 
-      <button
-        className="toolbar-btn"
-        onClick={undoX}
-        disabled={!hasLevel || xHistory.length === 0}
-      >
+      <button className="toolbar-btn" onClick={undoX} disabled={!hasLevel || xHistory.length === 0}>
         ↩ 撤销
       </button>
-      <button
-        className="toolbar-btn"
-        onClick={redoX}
-        disabled={!hasLevel || redoStack.length === 0}
-      >
+      <button className="toolbar-btn" onClick={redoX} disabled={!hasLevel || redoStack.length === 0}>
         ↪ 重做
       </button>
-      <button
-        className="toolbar-btn"
-        onClick={resetBoard}
-        disabled={!hasLevel}
-      >
+      <button className="toolbar-btn" onClick={resetBoard} disabled={!hasLevel}>
         ↺ 重置
       </button>
 
       <div className="toolbar-divider" />
 
       <button
-        className={`toolbar-btn ${solverPanelOpen ? 'active' : ''}`}
+        className={`toolbar-btn${solverPanelOpen ? ' active' : ''}`}
         onClick={() => setSolverPanelOpen(!solverPanelOpen)}
         disabled={!hasLevel}
       >
-        🔍 求解器
+        求解器
       </button>
-      <button
-        className="toolbar-btn primary"
-        onClick={onOpenGenerator}
-      >
-        ⚡ 生成器
+      <button className="toolbar-btn primary" onClick={onOpenGenerator}>
+        生成器
       </button>
     </div>
   );

@@ -27,7 +27,7 @@ export default function Hud() {
       </div>
       <div className="hud-item">
         红 X
-        <span className="hud-value" style={{ color: wrongCount > 0 ? '#ff4f66' : undefined }}>
+        <span className="hud-value" style={{ color: wrongCount > 0 ? 'var(--danger)' : undefined }}>
           {wrongCount}
         </span>
       </div>

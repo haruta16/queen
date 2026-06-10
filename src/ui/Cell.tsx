@@ -1,13 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { useGameStore } from '../game/store';
 
-interface CellBorders {
-  top: boolean;
-  right: boolean;
-  bottom: boolean;
-  left: boolean;
-}
-
 interface CellProps {
   row: number;
   col: number;
@@ -16,15 +9,46 @@ interface CellProps {
   isX: boolean;
   isWrong: boolean;
   color: string;
-  size: number;
   isUniqueCandidate: boolean;
   isSolverHighlight: boolean;
-  borders: CellBorders;
+  isSourceHighlight: boolean;
+  isTargetUnitHighlight: boolean;
+  isContradictionHighlight: boolean;
+  isEvidenceX: boolean;
+  isStepMuted: boolean;
+  stepResultLabel: 'x' | 'queen' | null;
+  borders: { top: boolean; right: boolean; bottom: boolean; left: boolean };
+}
+
+function areEqual(prev: CellProps, next: CellProps) {
+  return (
+    prev.row === next.row &&
+    prev.col === next.col &&
+    prev.isQueen === next.isQueen &&
+    prev.isX === next.isX &&
+    prev.isWrong === next.isWrong &&
+    prev.isUniqueCandidate === next.isUniqueCandidate &&
+    prev.isSolverHighlight === next.isSolverHighlight &&
+    prev.isSourceHighlight === next.isSourceHighlight &&
+    prev.isTargetUnitHighlight === next.isTargetUnitHighlight &&
+    prev.isContradictionHighlight === next.isContradictionHighlight &&
+    prev.isEvidenceX === next.isEvidenceX &&
+    prev.isStepMuted === next.isStepMuted &&
+    prev.stepResultLabel === next.stepResultLabel &&
+    prev.color === next.color &&
+    prev.borders.top === next.borders.top &&
+    prev.borders.right === next.borders.right &&
+    prev.borders.bottom === next.borders.bottom &&
+    prev.borders.left === next.borders.left
+  );
 }
 
 function CellComponent({
-  row, col, isQueen, isX, isWrong, color, size,
-  isUniqueCandidate, isSolverHighlight, borders,
+  row, col, isQueen, isX, isWrong, color,
+  isUniqueCandidate, isSolverHighlight,
+  isSourceHighlight, isTargetUnitHighlight, isContradictionHighlight,
+  isEvidenceX, isStepMuted, stepResultLabel,
+  borders,
 }: CellProps) {
   const [animClass, setAnimClass] = useState('');
   const toggleX = useGameStore(s => s.toggleX);
@@ -35,7 +59,7 @@ function CellComponent({
 
   useEffect(() => {
     if (isX && !prevIsX.current) {
-      setAnimClass('is-x-mark');
+      setAnimClass('cell-anim-x');
       const timer = setTimeout(() => setAnimClass(''), 300);
       prevIsX.current = isX;
       return () => clearTimeout(timer);
@@ -45,7 +69,7 @@ function CellComponent({
 
   useEffect(() => {
     if (isQueen && !prevIsQueen.current) {
-      setAnimClass('is-queen-highlight');
+      setAnimClass('cell-anim-queen');
       const timer = setTimeout(() => setAnimClass(''), 400);
       prevIsQueen.current = isQueen;
       return () => clearTimeout(timer);
@@ -53,13 +77,9 @@ function CellComponent({
     prevIsQueen.current = isQueen;
   }, [isQueen]);
 
-  const handleClick = useCallback(() => {
-    toggleX(row, col);
-  }, [row, col, toggleX]);
-
   useEffect(() => {
     if (isWrong && !prevIsWrong.current) {
-      setAnimClass('is-error');
+      setAnimClass('cell-anim-error');
       const timer = setTimeout(() => setAnimClass(''), 360);
       prevIsWrong.current = isWrong;
       return () => clearTimeout(timer);
@@ -67,27 +87,32 @@ function CellComponent({
     prevIsWrong.current = isWrong;
   }, [isWrong]);
 
+  const handleClick = useCallback(() => { toggleX(row, col); }, [row, col, toggleX]);
   const handleDoubleClick = useCallback(() => {
-    const error = confirmQueen(row, col);
-    if (error) {
-      setAnimClass('is-error');
-      setTimeout(() => setAnimClass(''), 360);
-    }
+    const err = confirmQueen(row, col);
+    if (err) { setAnimClass('cell-anim-error'); setTimeout(() => setAnimClass(''), 360); }
   }, [row, col, confirmQueen]);
 
-  let className = 'cell';
-  if (isQueen) className += ' is-queen';
-  if (isX && !isQueen) className += ' is-x';
-  if (isWrong && !isQueen) className += ' is-wrong';
-  if (isUniqueCandidate && !isQueen && !isX) className += ' is-unique-candidate';
-  if (isSolverHighlight) className += ' is-solver-highlight';
-  if (animClass) className += ` ${animClass}`;
+  // Build className with all highlights
+  let cls = 'cell';
+  if (isQueen) cls += ' is-queen';
+  else {
+    if (isX) cls += ' is-x';
+    if (isWrong) cls += ' is-wrong';
+  }
+  if (isUniqueCandidate && !isQueen && !isX) cls += ' is-unique-candidate';
+  if (isSolverHighlight) cls += ' current';
+  if (stepResultLabel === 'x') cls += ' current-x';
+  if (stepResultLabel === 'queen') cls += ' current-cat';
+  if (isSourceHighlight) cls += ' source';
+  if (isTargetUnitHighlight) cls += ' target-unit';
+  if (isContradictionHighlight) cls += ' contradiction';
+  if (isEvidenceX) cls += ' evidence-x';
+  if (isStepMuted) cls += ' step-muted';
+  if (animClass) cls += ` ${animClass}`;
 
-  const regionBorder = '2px solid rgba(23,23,23,0.38)';
-
+  const regionBorder = '2px solid rgba(36, 33, 42, 0.34)';
   const style: React.CSSProperties = {
-    width: size,
-    height: size,
     background: color,
     borderTop: borders.top ? regionBorder : '0 none',
     borderRight: borders.right ? regionBorder : '0 none',
@@ -96,12 +121,14 @@ function CellComponent({
   };
 
   return (
-    <div className={className} style={style} onClick={handleClick} onDoubleClick={handleDoubleClick}>
-      {isQueen && <span className="queen-icon" style={{ fontSize: Math.round(size * 0.55) }}>♛</span>}
-      {isX && !isQueen && !isWrong && <span className="x-icon">✕</span>}
-      {isWrong && !isQueen && <span className="wrong-icon">✕</span>}
+    <div className={cls} style={style} onClick={handleClick} onDoubleClick={handleDoubleClick}>
+      {/* Queen mark: solid circle (dogku style) */}
+      {isQueen && <span className="mark cat" />}
+      {/* X mark: two crossed lines */}
+      {(isX || isWrong) && !isQueen && <span className="mark x" />}
+      {/* wrong X mark: additional dashed styling via wrong class */}
     </div>
   );
 }
 
-export default memo(CellComponent);
+export default memo(CellComponent, areEqual);
