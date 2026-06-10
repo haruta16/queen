@@ -49,7 +49,7 @@ function exportLevelAsJson(level: Level) {
   URL.revokeObjectURL(url);
 }
 
-export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: () => void }) {
+export default function GeneratorPanel({ onEnterReplay }: { onEnterReplay?: () => void }) {
   const isGenerating = useGameStore(s => s.isGenerating);
   const generationError = useGameStore(s => s.generationError);
   const requestGenerate = useGameStore(s => s.requestGenerate);
@@ -77,21 +77,22 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
   };
 
   const handleEnter = () => {
-    if (enterGeneratedLevel()) onEnterMainline?.();
+    if (enterGeneratedLevel()) onEnterReplay?.();
   };
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
   };
 
-  const importLevelFromJson = useGameStore(s => s.importLevelFromJson);
+  const importLevelFromFile = useGameStore(s => s.importLevelFromFile);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     setImportError(null);
-    const { error } = await importLevelFromJson(file);
+    const { level, error } = await importLevelFromFile(file);
     if (error) setImportError(error);
+    if (level && enterGeneratedLevel()) onEnterReplay?.();
     event.target.value = '';
   };
 
@@ -104,14 +105,14 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json"
+        accept="image/png,image/jpeg,.json,application/json"
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
       <section className="generator-hero">
         <span className="brand-kicker">关卡工坊</span>
-        <h2>关卡生成器</h2>
-        <p>生成和进入主线已经分开。先生成、看结果参数，满意后再进入主线。</p>
+        <h2>生成 / 导入</h2>
+        <p>生成新棋盘，或导入截图、dogku JSON、LinkedIn colorMasks JSON，统一进入推理回放。</p>
       </section>
 
       <section className="generator-workbench">
@@ -191,13 +192,13 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
               {isGenerating ? '生成中...' : '生成'}
             </button>
             <button className="ghost-btn" onClick={handleEnter} disabled={!lastLevel || isGenerating}>
-              进入主线
+              进入回放
             </button>
             <button className="ghost-btn" onClick={() => lastLevel && exportLevelAsJson(lastLevel)} disabled={!lastLevel || isGenerating}>
               导出 JSON
             </button>
             <button className="ghost-btn" onClick={handleImportClick} disabled={isGenerating}>
-              导入 JSON
+              导入截图 / JSON
             </button>
           </div>
 
@@ -223,7 +224,7 @@ export default function GeneratorPanel({ onEnterMainline }: { onEnterMainline?: 
           {!lastLevel && !isGenerating && (
             <div className="generator-empty">
               <strong>参数会保留</strong>
-              <span>切回主线再回来，棋盘大小、目标步数、seed 和上次结果都会留在这里。</span>
+              <span>生成结果会保留；导入截图或 JSON 后会自动进入回放。</span>
             </div>
           )}
 

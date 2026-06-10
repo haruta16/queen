@@ -22,11 +22,14 @@ export type Region = {
 /** 6 种具体策略类型 */
 export type StrategyType =
   | 'L1'
+  | 'L2_SingleCandidate'
   | 'L2_Lock1'
   | 'L2_Lock2'
   | 'L2_Lock3'
   | 'L3_Projection'
-  | 'L3_Contradiction';
+  | 'L3_Contradiction'
+  | 'L4_Contradiction'
+  | 'L5_Branch';
 
 /** 约束单位类型 */
 export type UnitKind = 'row' | 'col' | 'region';
@@ -37,8 +40,38 @@ export type UnitRef = {
   index: number;
 };
 
+export type SolverTraceMark = {
+  pos: Position;
+  mark: 'assumption' | 'temp-queen' | 'temp-x';
+  rule?: string;
+  ruleZh?: string;
+  actionZh?: string;
+};
+
+export type SolverContradiction = {
+  type: string;
+  typeZh?: string;
+  description: string;
+  unit?: UnitRef;
+  sourceUnits?: UnitRef[];
+  targetUnits?: UnitRef[];
+  cells?: Position[];
+  candidateCells?: Position[];
+};
+
+export type SolverBranch = {
+  assumption?: Position;
+  status: 'contradiction' | 'survives';
+  statusZh?: string;
+  propagationDepth?: number;
+  derivedActionCount?: number;
+  contradiction?: SolverContradiction | null;
+  trace?: SolverTraceMark[];
+};
+
 /** 求解器一个批次的推理元数据 — 用于前端渲染推理可视化 */
 export type SolverBatchReason = {
+  unit?: UnitRef;
   sourceUnit?: UnitRef;
   sourceUnits?: UnitRef[];
   targetUnit?: UnitRef;
@@ -47,14 +80,31 @@ export type SolverBatchReason = {
   remainingCandidates?: Position[];
   excludedCells?: Position[];
   assumptionCell?: Position;
+  assumptionCells?: Position[];
+  rejectedAssumptions?: Position[];
+  commonExcludedCells?: Position[];
+  commonConfirmedCells?: Position[];
   contradictionType?: string;
+  contradiction?: SolverContradiction;
   groupSize?: number;
+  branchCount?: number;
+  survivingBranchCount?: number;
+  contradictoryBranchCount?: number;
+  propagationDepth?: number;
+  derivedActionCount?: number;
+  trace?: SolverTraceMark[];
+  branches?: SolverBranch[];
+  explanation?: string;
 };
 
 /** 求解器的一个批次 — 单次策略执行的产出 */
 export type SolverBatch = {
   index: number;
   strategy: StrategyType;
+  rule?: string;
+  ruleZh?: string;
+  difficulty?: string;
+  difficultyZh?: string;
   eliminations: Position[];
   queenConfirmed: Position[];
   description: string;
@@ -74,12 +124,19 @@ export type Level = {
   id: string;
   n: number;
   regions: Region[];
+  paletteRgb?: number[][];
   solution: Position[];
   seed: number;
   targetSteps: number;
   actualSteps: number;
   strategySequence: StrategyType[];
   solverResult: SolverResult;
+  source?: 'generated' | 'imported-json' | 'imported-image';
+  validation?: {
+    uniqueSolution?: boolean;
+    solutionCount?: number;
+    allRegionsConnected?: boolean;
+  };
 };
 
 /** 生成器参数 */

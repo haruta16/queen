@@ -15,9 +15,12 @@ interface CellProps {
   isTargetUnitHighlight: boolean;
   isContradictionHighlight: boolean;
   isEvidenceX: boolean;
+  isBranchResult: boolean;
   isStepMuted: boolean;
   stepResultLabel: 'x' | 'queen' | null;
+  tempMark: 'assumption' | 'temp-queen' | 'temp-x' | null;
   borders: { top: boolean; right: boolean; bottom: boolean; left: boolean };
+  interactive?: boolean;
 }
 
 function areEqual(prev: CellProps, next: CellProps) {
@@ -33,8 +36,11 @@ function areEqual(prev: CellProps, next: CellProps) {
     prev.isTargetUnitHighlight === next.isTargetUnitHighlight &&
     prev.isContradictionHighlight === next.isContradictionHighlight &&
     prev.isEvidenceX === next.isEvidenceX &&
+    prev.isBranchResult === next.isBranchResult &&
     prev.isStepMuted === next.isStepMuted &&
     prev.stepResultLabel === next.stepResultLabel &&
+    prev.tempMark === next.tempMark &&
+    prev.interactive === next.interactive &&
     prev.color === next.color &&
     prev.borders.top === next.borders.top &&
     prev.borders.right === next.borders.right &&
@@ -47,8 +53,9 @@ function CellComponent({
   row, col, isQueen, isX, isWrong, color,
   isUniqueCandidate, isSolverHighlight,
   isSourceHighlight, isTargetUnitHighlight, isContradictionHighlight,
-  isEvidenceX, isStepMuted, stepResultLabel,
+  isEvidenceX, isBranchResult, isStepMuted, stepResultLabel, tempMark,
   borders,
+  interactive = true,
 }: CellProps) {
   const [animClass, setAnimClass] = useState('');
   const toggleX = useGameStore(s => s.toggleX);
@@ -87,11 +94,15 @@ function CellComponent({
     prevIsWrong.current = isWrong;
   }, [isWrong]);
 
-  const handleClick = useCallback(() => { toggleX(row, col); }, [row, col, toggleX]);
+  const handleClick = useCallback(() => {
+    if (!interactive) return;
+    toggleX(row, col);
+  }, [interactive, row, col, toggleX]);
   const handleDoubleClick = useCallback(() => {
+    if (!interactive) return;
     const err = confirmQueen(row, col);
     if (err) { setAnimClass('cell-anim-error'); setTimeout(() => setAnimClass(''), 360); }
-  }, [row, col, confirmQueen]);
+  }, [interactive, row, col, confirmQueen]);
 
   // Build className with all highlights
   let cls = 'cell';
@@ -108,7 +119,9 @@ function CellComponent({
   if (isTargetUnitHighlight) cls += ' target-unit';
   if (isContradictionHighlight) cls += ' contradiction';
   if (isEvidenceX) cls += ' evidence-x';
+  if (isBranchResult) cls += ' branch-result';
   if (isStepMuted) cls += ' step-muted';
+  if (!interactive) cls += ' read-only';
   if (animClass) cls += ` ${animClass}`;
 
   const regionBorder = '2px solid rgba(36, 33, 42, 0.34)';
@@ -126,6 +139,9 @@ function CellComponent({
       {isQueen && <span className="mark cat" />}
       {/* X mark: two crossed lines */}
       {(isX || isWrong) && !isQueen && <span className="mark x" />}
+      {tempMark === 'assumption' && <span className="mark assumption" />}
+      {tempMark === 'temp-queen' && <span className="mark temp-cat" />}
+      {tempMark === 'temp-x' && <span className="mark temp-x" />}
       {/* wrong X mark: additional dashed styling via wrong class */}
     </div>
   );

@@ -1,6 +1,8 @@
 import { useMemo, useState, useEffect, useRef, memo } from 'react';
 import { useGameStore } from '../game/store';
 import { findUniqueCandidates, isBoardComplete } from '../game/rules';
+import { applyBatchesUpTo } from '../game/solver';
+import type { BoardState, Position, UnitRef } from '../game/types';
 import Cell from './Cell';
 
 const REGION_COLORS = [
@@ -8,7 +10,29 @@ const REGION_COLORS = [
   '#3A9FCA', '#7B6CBF', '#D486A8', '#6AAAD4', '#B8A67E',
 ];
 
-export default memo(function Board() {
+function inBounds(pos: Position, n: number): boolean {
+  return pos.row >= 0 && pos.row < n && pos.col >= 0 && pos.col < n;
+}
+
+function forEachUnitCell(
+  board: BoardState,
+  unit: UnitRef,
+  visit: (row: number, col: number) => void,
+) {
+  for (let row = 0; row < board.n; row++) {
+    for (let col = 0; col < board.n; col++) {
+      if (
+        (unit.kind === 'row' && row === unit.index) ||
+        (unit.kind === 'col' && col === unit.index) ||
+        (unit.kind === 'region' && board.cells[row][col].regionId === unit.index)
+      ) {
+        visit(row, col);
+      }
+    }
+  }
+}
+
+export default memo(function Board({ interactive = false }: { interactive?: boolean }) {
   const board = useGameStore(s => s.board);
   const level = useGameStore(s => s.level);
   const solverResult = useGameStore(s => s.solverResult);
@@ -17,9 +41,11 @@ export default memo(function Board() {
 
   const n = board?.n ?? 0;
 
-  // Always use the real player board as the data source.
-  // In replay mode, solver highlights are overlaid via cellMetas — the board itself is never replaced.
-  const displayBoard = board;
+  const displayBoard = useMemo(() => {
+    if (!board) return null;
+    if (!solverResult || solverStepIndex === 0) return board;
+    return applyBatchesUpTo(board, solverResult.batches, solverStepIndex);
+  }, [board, solverResult, solverStepIndex]);
 
   // Single pass: compute all per-cell metadata once
   interface CellMeta {
@@ -29,8 +55,10 @@ export default memo(function Board() {
     isTargetUnit: boolean;
     isContradiction: boolean;
     isEvidenceX: boolean;
+    isBranchResult: boolean;
     isMuted: boolean;
     label: 'x' | 'queen' | null;
+    tempMark: 'assumption' | 'temp-queen' | 'temp-x' | null;
   }
 
   const cellMetas = useMemo(() => {
@@ -44,16 +72,17 @@ export default memo(function Board() {
         isTargetUnit: false,
         isContradiction: false,
         isEvidenceX: false,
+        isBranchResult: false,
         isMuted: false,
         label: null,
+        tempMark: null,
       })),
     );
 
-    // unique candidates (cheap, always computed)
-    const uniq = findUniqueCandidates(displayBoard);
-    for (const u of uniq) {
-      if (u.row >= 0 && u.row < nn && u.col >= 0 && u.col < nn) {
-        metas[u.row][u.col].isUnique = true;
+    if (boardMode === 'hints') {
+      const uniq = findUniqueCandidates(displayBoard);
+      for (const u of uniq) {
+        if (inBounds(u, nn)) metas[u.row][u.col].isUnique = true;
       }
     }
 
@@ -65,13 +94,13 @@ export default memo(function Board() {
 
     // step results
     for (const x of batch.eliminations) {
-      if (x.row >= 0 && x.row < nn && x.col >= 0 && x.col < nn) {
+      if (inBounds(x, nn)) {
         metas[x.row][x.col].isHighlight = true;
         metas[x.row][x.col].label = 'x';
       }
     }
     for (const q of batch.queenConfirmed) {
-      if (q.row >= 0 && q.row < nn && q.col >= 0 && q.col < nn) {
+      if (inBounds(q, nn)) {
         metas[q.row][q.col].isHighlight = true;
         metas[q.row][q.col].label = 'queen';
       }
@@ -81,54 +110,73 @@ export default memo(function Board() {
     if (!reason) return metas;
 
     // source candidates
-    const sc = reason.sourceCandidates ?? reason.remainingCandidates;
+    const sc = [
+      ...(reason.sourceCandidates ?? []),
+      ...(reason.remainingCandidates ?? []),
+      ...(reason.assumptionCells ?? []),
+      ...(reason.rejectedAssumptions ?? []),
+    ];
     if (sc) for (const p of sc) {
-      if (p.row >= 0 && p.row < nn && p.col >= 0 && p.col < nn) metas[p.row][p.col].isSource = true;
+      if (inBounds(p, nn)) metas[p.row][p.col].isSource = true;
+    }
+
+    for (const p of [...(reason.commonExcludedCells ?? []), ...(reason.commonConfirmedCells ?? [])]) {
+      if (inBounds(p, nn)) metas[p.row][p.col].isBranchResult = true;
     }
 
     // target units
     const targets = reason.targetUnits ?? (reason.targetUnit ? [reason.targetUnit] : []);
     for (const u of targets) {
-      for (let r = 0; r < nn; r++) {
-        for (let c = 0; c < nn; c++) {
-          if ((u.kind === 'row' && r === u.index) ||
-              (u.kind === 'col' && c === u.index) ||
-              (u.kind === 'region' && displayBoard.cells[r][c].regionId === u.index)) {
-            metas[r][c].isTargetUnit = true;
-          }
-        }
-      }
+      forEachUnitCell(displayBoard, u, (r, c) => { metas[r][c].isTargetUnit = true; });
     }
 
     // contradiction
-    if (reason.contradictionType && reason.assumptionCell) {
-      const a = reason.assumptionCell;
-      if (a.row >= 0 && a.row < nn && a.col >= 0 && a.col < nn) metas[a.row][a.col].isContradiction = true;
+    if (reason.contradiction?.unit) {
+      forEachUnitCell(displayBoard, reason.contradiction.unit, (r, c) => { metas[r][c].isContradiction = true; });
+    }
+    for (const p of [...(reason.contradiction?.cells ?? []), ...(reason.contradiction?.candidateCells ?? [])]) {
+      if (inBounds(p, nn)) metas[p.row][p.col].isContradiction = true;
+    }
+    if (reason.contradictionType && reason.assumptionCell && inBounds(reason.assumptionCell, nn)) {
+      metas[reason.assumptionCell.row][reason.assumptionCell.col].isContradiction = true;
+    }
+
+    // temporary trace marks
+    const traceMarks = reason.trace ?? reason.branches?.find(branch => branch.trace?.length)?.trace ?? [];
+    const markRank = { 'temp-x': 1, 'temp-queen': 2, assumption: 3 } as const;
+    for (const mark of traceMarks) {
+      if (!inBounds(mark.pos, nn)) continue;
+      const current = metas[mark.pos.row][mark.pos.col].tempMark;
+      if (!current || markRank[mark.mark] >= markRank[current]) {
+        metas[mark.pos.row][mark.pos.col].tempMark = mark.mark;
+      }
+    }
+    for (const p of reason.rejectedAssumptions ?? []) {
+      if (inBounds(p, nn)) metas[p.row][p.col].tempMark = 'assumption';
     }
 
     // evidence X
-    const sources = reason.sourceUnits ?? (reason.sourceUnit ? [reason.sourceUnit] : []);
+    const sources = [
+      ...(reason.sourceUnits ?? (reason.sourceUnit ? [reason.sourceUnit] : [])),
+      ...(reason.unit ? [reason.unit] : []),
+      ...(reason.contradiction?.unit ? [reason.contradiction.unit] : []),
+      ...(reason.contradiction?.sourceUnits ?? []),
+    ];
     const elimKeys = new Set(batch.eliminations.map(e => `${e.row},${e.col}`));
     const queenKeys = new Set(batch.queenConfirmed.map(q => `${q.row},${q.col}`));
     for (const u of sources) {
-      for (let r = 0; r < nn; r++) {
-        for (let c = 0; c < nn; c++) {
-          if (!displayBoard.cells[r][c].isX) continue;
-          if (elimKeys.has(`${r},${c}`) || queenKeys.has(`${r},${c}`)) continue;
-          if ((u.kind === 'row' && r === u.index) ||
-              (u.kind === 'col' && c === u.index) ||
-              (u.kind === 'region' && displayBoard.cells[r][c].regionId === u.index)) {
-            metas[r][c].isEvidenceX = true;
-          }
-        }
-      }
+      forEachUnitCell(displayBoard, u, (r, c) => {
+        if (!displayBoard.cells[r][c].isX) return;
+        if (elimKeys.has(`${r},${c}`) || queenKeys.has(`${r},${c}`)) return;
+        metas[r][c].isEvidenceX = true;
+      });
     }
 
     // step-muted: everything that wasn't touched by any of the above
     for (let r = 0; r < nn; r++) {
       for (let c = 0; c < nn; c++) {
         const m = metas[r][c];
-        if (!m.isHighlight && !m.isSource && !m.isTargetUnit && !m.isContradiction && !m.isEvidenceX) {
+        if (!m.isHighlight && !m.isSource && !m.isTargetUnit && !m.isContradiction && !m.isEvidenceX && !m.isBranchResult && !m.tempMark) {
           m.isMuted = true;
         }
       }
@@ -206,16 +254,21 @@ export default memo(function Board() {
                 isQueen={cell.isQueen}
                 isX={cell.isX}
                 isWrong={cell.isWrong}
-                color={REGION_COLORS[cell.regionId % REGION_COLORS.length]}
+                color={level.paletteRgb?.[cell.regionId]
+                  ? `rgb(${level.paletteRgb[cell.regionId].join(',')})`
+                  : REGION_COLORS[cell.regionId % REGION_COLORS.length]}
                 isUniqueCandidate={meta?.isUnique ?? false}
                 isSolverHighlight={meta?.isHighlight ?? false}
                 isSourceHighlight={meta?.isSource ?? false}
                 isTargetUnitHighlight={meta?.isTargetUnit ?? false}
                 isContradictionHighlight={meta?.isContradiction ?? false}
                 isEvidenceX={meta?.isEvidenceX ?? false}
+                isBranchResult={meta?.isBranchResult ?? false}
                 isStepMuted={meta?.isMuted ?? false}
                 stepResultLabel={meta?.label ?? null}
+                tempMark={meta?.tempMark ?? null}
                 borders={regionBorders?.[r]?.[c] ?? { top: false, right: false, bottom: false, left: false }}
+                interactive={interactive}
               />
             );
           }),

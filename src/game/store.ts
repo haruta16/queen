@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import {
   BoardState, Level, SolverResult, OpHistoryEntry, GeneratorParams, GenerationResult,
-  Region, Position,
 } from './types';
 import {
   createEmptyBoard, applyX, removeX, applyQueen,
@@ -11,6 +10,7 @@ import {
 } from './rules';
 import { solve, applyBatchesUpTo } from './solver';
 import { generateLevelResult } from './generator';
+import { importLevelViaAnalyzer } from './importer';
 
 // ============================================================
 // 游戏状态 — zustand store
@@ -68,7 +68,7 @@ interface GameState {
   enterGeneratedLevel: () => boolean;
   clearMessage: () => void;
   getSolverBoardAtStep: (stepIndex: number) => BoardState | null;
-  importLevelFromJson: (file: File) => Promise<{ level: Level | null; error: string | null }>;
+  importLevelFromFile: (file: File) => Promise<{ level: Level | null; error: string | null }>;
 }
 
 export const useGameStore = create<GameState>((set, get) => {
@@ -111,8 +111,10 @@ export const useGameStore = create<GameState>((set, get) => {
       board,
       xHistory: [],
       redoStack: [],
-      solverResult: null,
+      solverResult: level.solverResult,
       solverStepIndex: 0,
+      solverPanelOpen: true,
+      boardMode: 'hints' as const,
       message: `关卡已加载: ${level.n}×${level.n} / ${level.actualSteps}步`,
       messageType: 'info',
     });
@@ -140,6 +142,7 @@ export const useGameStore = create<GameState>((set, get) => {
         board: newBoard,
         xHistory: [...get().xHistory, { pos: { row, col }, wasX: true }],
         redoStack: [],
+        solverStepIndex: 0,
         message: null,
       });
     } else {
@@ -149,6 +152,7 @@ export const useGameStore = create<GameState>((set, get) => {
         board: newBoard,
         xHistory: [...get().xHistory, { pos: { row, col }, wasX: false }],
         redoStack: [],
+        solverStepIndex: 0,
         message: null,
       });
     }
@@ -170,6 +174,7 @@ export const useGameStore = create<GameState>((set, get) => {
       set({
         board: newBoard,
         redoStack: [],
+        solverStepIndex: 0,
         message: `不是 Queen: ${formatPos({ row, col })}`,
         messageType: 'error',
       });
@@ -188,6 +193,7 @@ export const useGameStore = create<GameState>((set, get) => {
       // Queen 确认后棋盘大面积变化，清空操作历史
       xHistory: [],
       redoStack: [],
+      solverStepIndex: 0,
       message: complete ? '恭喜！所有 Queen 已就位！' : `Queen 确认: ${formatPos({ row, col })}`,
       messageType: complete ? 'success' : 'info',
     });
@@ -216,6 +222,7 @@ export const useGameStore = create<GameState>((set, get) => {
       board: newBoard,
       xHistory: newHistory,
       redoStack: [...get().redoStack, lastOp],
+      solverStepIndex: 0,
       message: null,
     });
     maybeRecompute();
@@ -241,6 +248,7 @@ export const useGameStore = create<GameState>((set, get) => {
       board: newBoard,
       xHistory: [...xHistory, op],
       redoStack: newRedo,
+      solverStepIndex: 0,
       message: null,
     });
     maybeRecompute();
@@ -255,6 +263,8 @@ export const useGameStore = create<GameState>((set, get) => {
       xHistory: [],
       redoStack: [],
       solverStepIndex: 0,
+      solverResult: level.solverResult,
+      boardMode: 'hints' as const,
       message: '棋盘已重置',
       messageType: 'info',
     });
@@ -386,92 +396,54 @@ export const useGameStore = create<GameState>((set, get) => {
     return applyBatchesUpTo(board, solverResult.batches, stepIndex);
   },
 
-  // 从 JSON 文件导入关卡（兼容 LinkedIn Queens 格式）
-  importLevelFromJson: async (file) => {
-    try {
-      const text = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error('文件读取失败'));
-        reader.readAsText(file);
-      });
-
-      const json = JSON.parse(text);
-      const n: number = json.size;
-      const colorMasks: number[] = json.colorMasks;
-      const cows: { x: number; y: number }[] = json.cows;
-
-      if (!Number.isFinite(n) || n < 2 || !Array.isArray(colorMasks) || colorMasks.length !== n * n) {
-        return { level: null, error: `无效的关卡数据: size=${n}, colorMasks长度=${colorMasks?.length}` };
-      }
-
-      // 按 mask 值分组成区域
-      const maskToCells = new Map<number, Position[]>();
-      for (let i = 0; i < colorMasks.length; i++) {
-        const row = Math.floor(i / n);
-        const col = i % n;
-        const mask = colorMasks[i];
-        if (!maskToCells.has(mask)) maskToCells.set(mask, []);
-        maskToCells.get(mask)!.push({ row, col });
-      }
-
-      const regions: Region[] = [...maskToCells.entries()].map(([_mask, cells], idx) => ({
-        id: idx,
-        cells,
-      }));
-
-      // cows 格式: x=col, y=row
-      const solution: Position[] = cows.map(c => ({ row: c.y, col: c.x }));
-
-      const board = createEmptyBoard(n, regions);
-      const solverResult = solve(board);
-
-      if (!solverResult.complete) {
-        return { level: null, error: '导入的关卡无法被求解器完全求解' };
-      }
-
-      const level: Level = {
-        id: `import-${json.seed || json.LevelID || Date.now()}`,
-        n,
-        regions,
-        solution,
-        seed: json.seed ?? json.LevelID ?? 0,
-        targetSteps: solverResult.totalSteps,
-        actualSteps: solverResult.totalSteps,
-        strategySequence: solverResult.batches.map(b => b.strategy),
-        solverResult,
-      };
-
+  importLevelFromFile: async (file) => {
+    const startedAt = performance.now();
+    set({
+      isGenerating: true,
+      generationError: null,
+      message: '正在分析导入文件...',
+      messageType: 'info',
+    });
+    const result = await importLevelViaAnalyzer(file);
+    if (!result.level) {
       set({
-        lastGeneratedLevel: level,
-        lastGenerationResult: {
-          status: 'exact',
-          level,
-          diagnostics: {
-            status: 'exact',
-            attempts: 1,
-            maxAttempts: 1,
-            elapsedMs: 0,
-            seed: level.seed,
-            targetSteps: level.targetSteps,
-            bestActualSteps: level.actualSteps,
-            bestDiff: 0,
-            selectedAttempt: 1,
-            selectedAttemptSeed: level.seed,
-            completeCandidates: 1,
-            incompleteCandidates: 0,
-            exactCandidates: 1,
-            allowApproximate: true,
-          },
-        },
-        generationError: null,
+        isGenerating: false,
+        generationError: result.error,
+        message: result.error || '导入失败',
+        messageType: 'error',
       });
-
-      return { level, error: null };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { level: null, error: msg };
+      return result;
     }
+
+    const level = result.level;
+    set({
+      isGenerating: false,
+      lastGeneratedLevel: level,
+      lastGenerationResult: {
+        status: 'exact',
+        level,
+        diagnostics: {
+          status: 'exact',
+          attempts: 1,
+          maxAttempts: 1,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          seed: level.seed,
+          targetSteps: level.targetSteps,
+          bestActualSteps: level.actualSteps,
+          bestDiff: 0,
+          selectedAttempt: 1,
+          selectedAttemptSeed: level.seed,
+          completeCandidates: 1,
+          incompleteCandidates: 0,
+          exactCandidates: 1,
+          allowApproximate: true,
+        },
+      },
+      generationError: null,
+      message: `导入完成: ${level.n}×${level.n} / ${level.actualSteps}步`,
+      messageType: 'success',
+    });
+    return result;
   },
   };
 });

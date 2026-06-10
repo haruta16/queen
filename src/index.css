@@ -66,6 +66,14 @@ button { cursor: pointer; }
   font-weight: 700;
 }
 
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 /* ── button primitives ──────────────────────────────────── */
 
 .primary-button {
@@ -108,7 +116,7 @@ button { cursor: pointer; }
 
 .summary-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(100px, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
   padding: 14px;
@@ -285,6 +293,8 @@ button { cursor: pointer; }
   transition: filter .18s, opacity .18s, transform .15s, outline .15s;
 }
 
+.cell.read-only { cursor: default; }
+
 .cell.step-muted {
   filter: brightness(0.55) saturate(0.35);
 }
@@ -353,6 +363,13 @@ button { cursor: pointer; }
 .cell.evidence-x {
   z-index: 3;
   box-shadow: inset 0 0 0 3px rgba(255, 244, 188, .92);
+}
+
+.cell.evidence-x .mark.x::before,
+.cell.evidence-x .mark.x::after {
+  width: 54%;
+  height: max(4px, 6%);
+  filter: drop-shadow(0 1px 2px rgba(31, 24, 18, .75));
 }
 
 .cell.contradiction.evidence-x {
@@ -545,6 +562,17 @@ button { cursor: pointer; }
 }
 
 .controls button:disabled { opacity: .35; cursor: default; }
+
+.replay-controls {
+  grid-template-columns: repeat(4, auto) minmax(160px, 1fr) auto auto;
+}
+
+.range-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
 
 /* ── difficulty curve ───────────────────────────────────── */
 
@@ -854,11 +882,14 @@ button { cursor: pointer; }
 }
 
 .strategy-chip.L1                { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
+.strategy-chip.L2_SingleCandidate { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
 .strategy-chip.L2_Lock1          { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
 .strategy-chip.L2_Lock2          { background: rgba(231, 51, 79, 0.12); color: #b91432; }
 .strategy-chip.L2_Lock3          { background: rgba(76, 57, 160, 0.12); color: #4c39a0; }
 .strategy-chip.L3_Projection     { background: rgba(0, 111, 156, 0.12); color: #006f9c; }
 .strategy-chip.L3_Contradiction  { background: rgba(168, 67, 22, 0.14); color: #a84316; }
+.strategy-chip.L4_Contradiction  { background: rgba(178, 39, 39, 0.14); color: #9d1f1f; }
+.strategy-chip.L5_Branch         { background: rgba(36, 33, 42, 0.14); color: var(--ink); }
 
 /* ── toolbar ────────────────────────────────────────────── */
 
@@ -1289,11 +1320,14 @@ button { cursor: pointer; }
 }
 
 .strat-L1                { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
+.strat-L2_SingleCandidate { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
 .strat-L2_Lock1          { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
 .strat-L2_Lock2          { background: rgba(231, 51, 79, 0.12); color: #b91432; }
 .strat-L2_Lock3          { background: rgba(76, 57, 160, 0.12); color: #4c39a0; }
 .strat-L3_Projection     { background: rgba(0, 111, 156, 0.12); color: #006f9c; }
 .strat-L3_Contradiction  { background: rgba(168, 67, 22, 0.14); color: #a84316; }
+.strat-L4_Contradiction  { background: rgba(178, 39, 39, 0.14); color: #9d1f1f; }
+.strat-L5_Branch         { background: rgba(36, 33, 42, 0.14); color: var(--ink); }
 
 .hit-pill {
   padding: 6px 10px;
@@ -1348,7 +1382,9 @@ button { cursor: pointer; }
     border-radius: 18px;
   }
   .controls { grid-template-columns: 1fr 1fr; }
+  .replay-controls { grid-template-columns: 1fr 1fr; }
   .controls input { grid-column: 1 / -1; grid-row: 1; }
+  .range-label { text-align: center; }
   .step-list { grid-template-columns: 1fr; }
 
   .generator-shell { padding: 14px; }
