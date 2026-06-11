@@ -881,15 +881,15 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 
-.strategy-chip.L1                { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
-.strategy-chip.L2_SingleCandidate { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
-.strategy-chip.L2_Lock1          { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
-.strategy-chip.L2_Lock2          { background: rgba(231, 51, 79, 0.12); color: #b91432; }
-.strategy-chip.L2_Lock3          { background: rgba(76, 57, 160, 0.12); color: #4c39a0; }
-.strategy-chip.L3_Projection     { background: rgba(0, 111, 156, 0.12); color: #006f9c; }
-.strategy-chip.L3_Contradiction  { background: rgba(168, 67, 22, 0.14); color: #a84316; }
-.strategy-chip.L4_Contradiction  { background: rgba(178, 39, 39, 0.14); color: #9d1f1f; }
-.strategy-chip.L5_Branch         { background: rgba(36, 33, 42, 0.14); color: var(--ink); }
+.strategy-chip.L1_RC               { background: rgba(8, 127, 122, 0.15); color: #087f7a; }
+.strategy-chip.L1_Color            { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
+.strategy-chip.L2_RC               { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
+.strategy-chip.L2_Color            { background: rgba(255, 176, 0, 0.14); color: #8b5e00; }
+.strategy-chip.L3_Projection_Color { background: rgba(0, 111, 156, 0.14); color: #006f9c; }
+.strategy-chip.L3_Projection_RC    { background: rgba(0, 111, 156, 0.10); color: #006f9c; }
+.strategy-chip.L3_Contra_RC        { background: rgba(168, 67, 22, 0.16); color: #a84316; }
+.strategy-chip.L3_Contra_Color     { background: rgba(168, 67, 22, 0.12); color: #a84316; }
+.strategy-chip.L4_Contra           { background: rgba(178, 39, 39, 0.16); color: #9d1f1f; }
 
 /* ── toolbar ────────────────────────────────────────────── */
 
@@ -1319,15 +1319,15 @@ button { cursor: pointer; }
   white-space: nowrap;
 }
 
-.strat-L1                { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
-.strat-L2_SingleCandidate { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
-.strat-L2_Lock1          { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
-.strat-L2_Lock2          { background: rgba(231, 51, 79, 0.12); color: #b91432; }
-.strat-L2_Lock3          { background: rgba(76, 57, 160, 0.12); color: #4c39a0; }
-.strat-L3_Projection     { background: rgba(0, 111, 156, 0.12); color: #006f9c; }
-.strat-L3_Contradiction  { background: rgba(168, 67, 22, 0.14); color: #a84316; }
-.strat-L4_Contradiction  { background: rgba(178, 39, 39, 0.14); color: #9d1f1f; }
-.strat-L5_Branch         { background: rgba(36, 33, 42, 0.14); color: var(--ink); }
+.strat-L1_RC               { background: rgba(8, 127, 122, 0.15); color: #087f7a; }
+.strat-L1_Color            { background: rgba(8, 127, 122, 0.12); color: #087f7a; }
+.strat-L2_RC               { background: rgba(255, 176, 0, 0.18); color: #9b6700; }
+.strat-L2_Color            { background: rgba(255, 176, 0, 0.14); color: #8b5e00; }
+.strat-L3_Projection_Color { background: rgba(0, 111, 156, 0.14); color: #006f9c; }
+.strat-L3_Projection_RC    { background: rgba(0, 111, 156, 0.10); color: #006f9c; }
+.strat-L3_Contra_RC        { background: rgba(168, 67, 22, 0.16); color: #a84316; }
+.strat-L3_Contra_Color     { background: rgba(168, 67, 22, 0.12); color: #a84316; }
+.strat-L4_Contra           { background: rgba(178, 39, 39, 0.16); color: #9d1f1f; }
 
 .hit-pill {
   padding: 6px 10px;

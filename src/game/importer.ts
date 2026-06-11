@@ -252,20 +252,19 @@ function normalizeReason(reason: Record<string, any>): SolverBatchReason {
 }
 
 function strategyFromDogku(step: DogkuStep): StrategyType {
-  if (step.rule === 'single_candidate') return 'L2_SingleCandidate';
-  if (step.rule === 'locked_candidates') return 'L2_Lock1';
+  if (step.rule === 'single_candidate') return 'L1_RC';
+  if (step.rule === 'locked_candidates') return 'L2_RC';
   if (step.rule === 'candidate_group_lock') {
-    const size = Number(step.reason?.group_size ?? 2);
-    if (size <= 1) return 'L2_Lock1';
-    if (size === 2) return 'L2_Lock2';
-    return 'L2_Lock3';
+    // 根据来源单位类型判断是 L2_RC 还是 L2_Color
+    const sourceKind = step.reason?.source_unit?.kind;
+    return sourceKind === 'region' ? 'L2_RC' : 'L2_Color';
   }
-  if (step.rule === 'range_common_diagonal') return 'L3_Projection';
+  if (step.rule === 'range_common_diagonal') return 'L3_Projection_RC';
   if (step.rule === 'short_contradiction') {
-    return step.difficulty === 'L4' ? 'L4_Contradiction' : 'L3_Contradiction';
+    return step.difficulty === 'L4' ? 'L4_Contra' : 'L3_Contra_RC';
   }
-  if (step.rule === 'branch_common_conclusion' || step.rule === 'branch_unique_survivor') return 'L5_Branch';
-  return step.difficulty === 'L1' ? 'L1' : 'L3_Projection';
+  if (step.rule === 'branch_common_conclusion' || step.rule === 'branch_unique_survivor') return 'L4_Contra';
+  return step.difficulty === 'L1' ? 'L1_RC' : 'L3_Projection_RC';
 }
 
 function regionsFromGrid(grid: number[][]): Region[] {

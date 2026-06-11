@@ -98,8 +98,7 @@ export default function SolverPanel({ role }: { role: 'reasoning' | 'steps' | 'd
     const isBranchLike = batch.rule === 'short_contradiction' ||
       batch.rule === 'branch_common_conclusion' ||
       batch.rule === 'branch_unique_survivor' ||
-      batch.strategy === 'L4_Contradiction' ||
-      batch.strategy === 'L5_Branch';
+      batch.strategy === 'L4_Contra';
 
     return reasonBox(
       <>

@@ -19,17 +19,21 @@ export type Region = {
   cells: Position[];
 };
 
-/** 6 种具体策略类型 */
+/** 9 种策略类型 */
 export type StrategyType =
-  | 'L1'
-  | 'L2_SingleCandidate'
-  | 'L2_Lock1'
-  | 'L2_Lock2'
-  | 'L2_Lock3'
-  | 'L3_Projection'
-  | 'L3_Contradiction'
-  | 'L4_Contradiction'
-  | 'L5_Branch';
+  // L1: 唯一候选确认 → Queen + 投影传播
+  | 'L1_RC'                   // ① 行列唯一
+  | 'L1_Color'                // ② 颜色唯一
+  // L2: 锁定（鸽巢原理，不限 k）
+  | 'L2_RC'                   // ③ 锁定行列：k个颜色的候选全在k行/列 → 排除行/列中其他候选
+  | 'L2_Color'                // ④ 锁定颜色：k行/列的候选全是k个颜色 → 排除颜色中其他候选
+  // L3: 投影交集 & 单步反推
+  | 'L3_Projection_Color'     // ⑤ 颜色投影交集
+  | 'L3_Projection_RC'        // ⑥ 行列投影交集
+  | 'L3_Contra_RC'            // ⑦ 单步反推-行列
+  | 'L3_Contra_Color'         // ⑧ 单步反推-颜色
+  // L4: 多步反推
+  | 'L4_Contra';              // ⑨ 反推2
 
 /** 约束单位类型 */
 export type UnitKind = 'row' | 'col' | 'region';
