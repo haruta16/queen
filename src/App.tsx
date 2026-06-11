@@ -3,6 +3,8 @@ import { useGameStore } from './game/store';
 import Board from './ui/Board';
 import SolverPanel from './ui/SolverPanel';
 import GeneratorPanel from './ui/GeneratorPanel';
+import LevelSelect from './ui/LevelSelect';
+import { randomLevel } from './levels';
 
 type AppMode = 'replay' | 'generator';
 
@@ -29,17 +31,12 @@ export default function App() {
 
   useEffect(() => {
     if (!level) {
-      requestGenerate({
-        n: 6,
-        targetSteps: 6,
-        seed: 20260515,
-        maxAttempts: 2500,
-        allowApproximate: true,
-      }).then(result => {
-        if (result.level) loadLevel(result.level);
-      });
+      // 首次进入：从关卡来源随机选一个
+      const lv = randomLevel();
+      loadLevel(lv);
     }
-  }, [level, requestGenerate, loadLevel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!message) return;
@@ -105,6 +102,7 @@ export default function App() {
               <p className="hero-copy">单击画 X，双击确认 Queen。每次操作都会基于当前棋盘重新计算推理回放和提示。</p>
             </div>
             <div className="hero-actions">
+              <LevelSelect />
               <span className="status-pill">{n}×{n}</span>
               <button className="primary-button" onClick={() => setAppMode('generator')}>生成 / 导入</button>
             </div>

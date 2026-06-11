@@ -32,3 +32,6 @@ coverage/
 
 # Vite
 vite.config.ts.timestamp-*
+
+# Level data (copied from external Bullpen source)
+src/levels/data/
