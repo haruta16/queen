@@ -121,6 +121,45 @@ button { cursor: pointer; }
   padding: 6px;
 }
 
+/* ── quick import (replay header) ───────────────────────── */
+
+.quick-import {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.quick-import:hover,
+.quick-import.dragover {
+  border-color: var(--accent);
+  background: rgba(8, 127, 122, 0.05);
+}
+
+.quick-import.busy {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.quick-import-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.quick-import-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+}
+
 /* ── button primitives ──────────────────────────────────── */
 
 .primary-button {

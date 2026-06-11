@@ -200,6 +200,9 @@ export default function GeneratorPanel({ onEnterReplay }: { onEnterReplay?: () =
             <button className="ghost-btn" onClick={handleImportClick} disabled={isGenerating}>
               导入截图 / JSON
             </button>
+            <button className="ghost-btn" onClick={() => onEnterReplay?.()}>
+              ← 返回
+            </button>
           </div>
 
           {generationError && <p className="generator-error">{generationError}</p>}

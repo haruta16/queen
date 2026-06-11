@@ -4,6 +4,7 @@ import Board from './ui/Board';
 import SolverPanel from './ui/SolverPanel';
 import GeneratorPanel from './ui/GeneratorPanel';
 import LevelSelect from './ui/LevelSelect';
+import QuickImport from './ui/QuickImport';
 import { randomLevel } from './levels';
 
 type AppMode = 'replay' | 'generator';
@@ -102,6 +103,7 @@ export default function App() {
               <p className="hero-copy">单击画 X，双击确认 Queen。每次操作都会基于当前棋盘重新计算推理回放和提示。</p>
             </div>
             <div className="hero-actions">
+              <QuickImport />
               <LevelSelect />
               <span className="status-pill">{n}×{n}</span>
               <button className="primary-button" onClick={() => setAppMode('generator')}>生成 / 导入</button>
